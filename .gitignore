@@ -1,0 +1,22 @@
+# Segredos e dados pessoais do console. NUNCA commitar (CLAUDE.md secao 3).
+sandbox/
+*.sed
+boot9.bin
+essential.exefs
+Launcher.dat
+
+# Fotos do console e screenshots de sessoes de desenvolvimento
+sample/
+/*.png
+
+# Redundante: o exe ja esta extraido em tools/save3ds/
+tools/save3ds.zip
+
+# Estado de runtime do guard do SD real (baseline por maquina)
+tests/.real_sd_hash
+
+# Caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.playwright-mcp/
