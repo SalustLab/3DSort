@@ -9,6 +9,9 @@ Launcher.dat
 sample/
 /*.png
 
+# Mockup visual de referencia, nao e codigo de producao
+prototype/
+
 # Redundante: o exe ja esta extraido em tools/save3ds/
 tools/save3ds.zip
 
