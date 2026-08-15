@@ -1,4 +1,4 @@
-"""Staging (undo/redo sobre snapshots de estado) e backups do extdata."""
+"""Staging (undo/redo over state snapshots) and extdata backups."""
 import copy
 import json
 import shutil
@@ -8,12 +8,12 @@ from pathlib import Path
 
 
 class Staging:
-    """Snapshots imutaveis: cada commit guarda o estado anterior no undo stack."""
+    """Immutable snapshots: each commit stores the previous state on the undo stack."""
 
     def __init__(self, state):
         self.state = state
         self.staged: list[str] = []
-        self._undo: list[tuple] = []  # (estado_anterior, staged_anterior)
+        self._undo: list[tuple] = []  # (previous_state, previous_staged)
         self._redo: list[tuple] = []
 
     def commit(self, label: str, new_state):
@@ -33,14 +33,14 @@ class Staging:
         self.state, self.staged = nxt_state, nxt_staged
 
     def clear(self):
-        """Depois de um write bem-sucedido: staging zerado, estado mantido."""
+        """After a successful write: staging cleared, state kept."""
         self.staged.clear()
         self._undo.clear()
         self._redo.clear()
 
 
 class Backups:
-    """Zips do extdata extraido + historico em JSON lines."""
+    """Zips of the extracted extdata + history in JSON lines."""
 
     def __init__(self, root: Path, keep: int = 20):
         self.root = Path(root)
@@ -50,8 +50,8 @@ class Backups:
 
     def create(self, extdata_dir: Path, kind: str, note: str,
                extra: dict | None = None) -> dict:
-        """extra: {arcname: bytes | Path} — arquivos fora da arvore de extdata
-        (ex.: __nand__/Launcher.dat); o restore os separa do extract do SD."""
+        """extra: {arcname: bytes | Path} - files outside the extdata tree
+        (e.g. __nand__/Launcher.dat); restore separates them from the SD extract."""
         ts = time.strftime("%Y%m%d-%H%M%S")
         bid = f"{ts}-{len(self.history())}"
         zpath = self.root / f"layout_{bid}.3dsl"
@@ -60,9 +60,9 @@ class Backups:
                 if p.is_file():
                     z.write(p, p.relative_to(extdata_dir).as_posix())
                 elif p.is_dir():
-                    # diretorio vazio (ex.: boss/) PRECISA sobreviver ao zip:
-                    # extdata importado sem ele faz o HOME reconstruir o
-                    # SaveData inteiro (statuses, tema, pastas) — Fase 0C
+                    # an empty directory (e.g. boss/) MUST survive the zip:
+                    # extdata imported without it makes the HOME rebuild the
+                    # whole SaveData (statuses, theme, folders) - Phase 0C
                     z.writestr(p.relative_to(extdata_dir).as_posix() + "/", "")
             for arcname, src in (extra or {}).items():
                 if isinstance(src, (bytes, bytearray)):
@@ -77,7 +77,7 @@ class Backups:
         return entry
 
     def move_root(self, new_root: Path):
-        """Muda a pasta de backups levando os zips e o historico junto."""
+        """Changes the backups folder, taking the zips and the history along."""
         new_root = Path(new_root)
         new_root.mkdir(parents=True, exist_ok=True)
         if new_root.resolve() == self.root.resolve():

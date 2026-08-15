@@ -1,4 +1,4 @@
-"""SETTINGS funcional: troca do drive do SD e da pasta de backups (mock)."""
+"""Functional SETTINGS: switching the SD drive and the backups folder (mock)."""
 import json
 from pathlib import Path
 
@@ -22,7 +22,7 @@ def test_list_drives_includes_current():
 def test_set_sd_root_switches_and_reimports(tmp_path):
     api = build_api(mock=True)
     api.get_state()
-    api.folder_create()  # staged, deve sumir com o re-import
+    api.folder_create()  # staged, must vanish with the re-import
     new_sd = make_fake_sd(tmp_path / "sd2")
     st = api.set_sd_root(str(new_sd))
     assert "error" not in st
@@ -52,7 +52,7 @@ def test_set_backups_dir_moves_backups(tmp_path):
     assert [e["id"] for e in api.backups.history()] == [old_hist[0]["id"]]
     assert (new_dir / old_hist[0]["file"]).exists()
     assert not (old_root / old_hist[0]["file"]).exists()
-    api.backup_manual()  # backup novo cai na pasta nova
+    api.backup_manual()  # new backup lands in the new folder
     assert len(list(new_dir.glob("*.3dsl"))) == 2
 
 

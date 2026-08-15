@@ -38,7 +38,7 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 .dragover{outline:2px dashed var(--red)}
 .item{transition:transform .12s,opacity .12s}
 .item.dragging{opacity:.35;transform:scale(.92)}
-.item.drop-into{outline:3px solid var(--red);outline-offset:2px;transform:scale(1.06)}
+.item.drop-into{outline:3px solid #3b4cca;outline-offset:2px;transform:scale(1.06)}
 .item.swap-with{outline:3px solid var(--red);outline-offset:2px;transform:scale(1.06);background:#fde8ec}
 .page-sep{grid-column:1/-1;display:flex;align-items:center;gap:10px;font-size:9px;letter-spacing:2px;color:var(--mut);margin:2px 0;user-select:none}
 .page-sep::before,.page-sep::after{content:"";flex:1;height:1px;background:var(--line2)}
@@ -66,8 +66,6 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 .toggle div{width:18px;height:18px;border-radius:50%;background:#fff}
 .toggle.sm{width:36px;height:20px;border-radius:10px}
 .toggle.sm div{width:16px;height:16px}
-.swatch{width:22px;height:22px;border-radius:50%;outline:2px solid var(--line);outline-offset:2px;cursor:pointer}
-.swatch.on{outline:3px solid var(--ink)}
 .sortchip{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line2);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;color:#7a6a58;cursor:pointer;position:relative}
 .sortchip:hover{border-color:var(--red)}
 .menu{position:absolute;top:36px;right:0;z-index:40;width:190px;background:var(--card);border:2px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(74,63,53,.2);padding:6px;display:flex;flex-direction:column;gap:2px}

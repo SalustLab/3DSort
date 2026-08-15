@@ -1,17 +1,17 @@
-// 3DSort UI — JS puro. Fala com a Api via pywebview (app) ou /api (modo --serve).
+// 3DSort UI — plain JS. Talks to the Api via pywebview (app) or /api (--serve mode).
 "use strict";
 
-let S = null; // estado vindo do backend
+let S = null; // state coming from the backend
 const P = Object.assign(
   { tab: "GRID", iconSize: "M", viewRows: 4, page: 1, showLabels: true,
-    sortMode: "Manual", folderColors: {}, themeId: "cosmos", language: "en-US" },
+    sortMode: "Manual", themeId: "cosmos" },
   JSON.parse(localStorage.getItem("prefs") || "{}"),
   { openFolder: null, selected: null, sortMenu: false, dragKey: null,
     driveMenu: false, drives: null }
 );
 const savePrefs = () => localStorage.setItem("prefs", JSON.stringify({
   tab: P.tab, iconSize: P.iconSize, viewRows: P.viewRows, page: P.page, showLabels: P.showLabels,
-  sortMode: P.sortMode, folderColors: P.folderColors, themeId: P.themeId, language: P.language }));
+  sortMode: P.sortMode, themeId: P.themeId }));
 
 async function call(name, args = []) {
   let r;
@@ -33,7 +33,7 @@ function toast(msg) {
 }
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// ---- derivados -------------------------------------------------------------
+// ---- derived state ----------------------------------------------------------
 const homeItems = () => S.items.filter(i => i.folder === -1);
 const systemItems = () => (S.system || []).filter(s => s.folder === -1);
 const folderIds = () => [...new Set([
@@ -42,23 +42,23 @@ const folderIds = () => [...new Set([
 ])].sort((a, b) => a - b);
 const folderItems = id => S.items.filter(i => i.folder === id);
 const systemInFolder = id => (S.system || []).filter(s => s.folder === id);
-// membros da pasta como no console: jogos SD + apps NAND fixos, por posicao
+// folder members as shown on the console: SD games + pinned NAND apps, by position
 const folderMembers = id => [
   ...folderItems(id).map(i => ({ kind: "game", it: i })),
   ...systemInFolder(id).map(s => ({ kind: "system", it: s }))
 ].sort((a, b) => a.it.pos - b.it.pos);
 const fname = id => (S.folderNames && S.folderNames[id]) || `Folder ${id + 1}`;
 const finitial = id => (fname(id).trim()[0] || "?").toUpperCase();
-// sequencia do home grid como no console: jogos + apps NAND (fixos) + pastas, por posicao
+// home grid sequence as shown on the console: games + NAND apps (pinned) + folders, by position
 const homeSeq = () => [
   ...homeItems().map(i => ({ kind: "game", it: i, pos: i.pos })),
   ...systemItems().map(s => ({ kind: "system", it: s, pos: s.pos })),
   ...folderIds().map(id => ({ kind: "folder", id, pos: (S.folderPos && S.folderPos[id] != null) ? S.folderPos[id] : Infinity }))
 ].sort((a, b) => a.pos - b.pos);
-// colunas INTEIRAS visiveis por modo (1-6 linhas), contadas nas fotos reais de sample/ (2026-08-14)
+// WHOLE columns visible per view mode (1-6 rows), counted on the real photos in sample/ (2026-08-14)
 const COLS = [3, 3, 5, 7, 9, 10];
-const FCOLORS = ["#e60012", "#3b4cca", "#7ac70c", "#ffb400", "#5a4fcf", "#ff6fa5", "#ff7d00", "#54606e"];
-const fcolor = id => P.folderColors[id] || FCOLORS[id % FCOLORS.length];
+// Folders are always blue, like on the real 3DS (no color picking there).
+const FOLDER_BLUE = "#3b4cca";
 const dark = h => {
   const n = parseInt(h.slice(1), 16), f = .62;
   return "#" + ((1 << 24) | (Math.round((n >> 16) * f) << 16) | (Math.round(((n >> 8) & 255) * f) << 8) | Math.round((n & 255) * f)).toString(16).slice(1);
@@ -76,7 +76,7 @@ const THEMES = [
 ];
 const theme = () => THEMES.find(t => t.id === P.themeId) || THEMES[0];
 
-// RULES/THEMES sao previews estaticos da v2 — estado local de sessao, sem backend.
+// RULES/THEMES are static v2 previews — session-local state, no backend.
 const RULES = [
   { p: "1", when: "Source is Virtual Console", then: "Move into 🗀 Virtual Console", on: true },
   { p: "2", when: "Played in the last 30 days", then: "Pin to Page 1 · most played first", on: true },
@@ -90,8 +90,8 @@ const BADGES = [
 ];
 
 // ---- render ----------------------------------------------------------------
-// FLIP: anima os tiles do #grid entre renders (o innerHTML e trocado inteiro,
-// entao mede-se posicao antes/depois por data-key e anima-se o delta).
+// FLIP: animates #grid tiles between renders (the innerHTML is replaced whole,
+// so positions are measured before/after by data-key and the delta is animated).
 function captureGrid() {
   const g = document.getElementById("grid");
   if (!g) return null;
@@ -158,26 +158,26 @@ function tileHtml(it, px) {
 }
 
 function systemTileHtml(it, px) {
-  if (it.hole)  // vaga livre do grid: o console mostra um espaco vazio aqui
+  if (it.hole)  // free grid slot: the console shows an empty space here
     return `<div class="item" data-key="h${it.pos}" style="cursor:default" title="Empty slot on the console grid">
       <div class="icon" style="width:${px}px;height:${px}px;background:none;border:2px dashed var(--line2);opacity:.5"></div>
     </div>`;
   const icon = it.icon
-    ? `<div class="icon" style="width:${px}px;height:${px}px;opacity:.75"><img src="data:image/png;base64,${it.icon}" alt=""></div>`
+    ? `<div class="icon" style="width:${px}px;height:${px}px"><img src="data:image/png;base64,${it.icon}" alt=""></div>`
     : `<div class="icon" style="width:${px}px;height:${px}px;background:none;border:2px dashed var(--line2);color:var(--mut);font-size:${Math.round(px * .4)}px">⚙</div>`;
-  // chave FLIP: n<slot> / cart para identificados; h<pos> para placeholders (sem colisao)
+  // FLIP key: n<slot> / cart for identified apps; h<pos> for placeholders (no collision)
   const key = it.key ? it.key.replace(":", "") : `h${it.pos}`;
   const drag = it.pinned ? "" : ` draggable="true" data-ekey="${it.key}"`;
   const tip = it.pinned ? "System app: fixed on the console (lives in NAND)"
     : "System app: drag to move it. Writing needs a GodMode9 inject step";
-  return `<div class="item" data-key="${key}"${drag} style="${it.pinned ? "cursor:default;" : ""}opacity:.8" title="${tip}">
+  return `<div class="item" data-key="${key}"${drag}${it.pinned ? ` style="cursor:default"` : ""} title="${tip}">
     ${icon}
     ${P.showLabels ? `<div class="label" style="color:var(--mut)">${esc(it.name)}</div>` : ""}
   </div>`;
 }
 
 function folderTileHtml(id, px) {
-  const c = fcolor(id);
+  const c = FOLDER_BLUE;
   const drag = S.launcherWritable ? ` draggable="true" data-ekey="f:${id}"` : "";
   return `<div class="item" data-folder-tile="${id}"${drag} data-key="f${id}">
     <div class="folder-tile" style="width:${px}px;height:${px}px;border:2.5px solid ${c}">
@@ -188,7 +188,7 @@ function folderTileHtml(id, px) {
   </div>`;
 }
 
-// lado do icone quadrado na tela inferior do preview (area interna fixa 232x172, gap 3)
+// square icon side on the preview's bottom screen (fixed inner area 232x172, gap 3)
 function pvIcon(rows, cols) {
   return Math.floor(Math.min((232 - (cols - 1) * 3) / cols, (172 - (rows - 1) * 3) / rows));
 }
@@ -200,16 +200,16 @@ function previewCol() {
   P.page = Math.min(P.page, pages);
   const slice = ordered.slice((P.page - 1) * per, (P.page - 1) * per + per);
   const cells = [];
-  // console preenche coluna-major (pos n -> col n/rows, lin n%rows); CSS grid emite row-major, entao transpoe
+  // the console fills column-major (pos n -> col n/rows, row n%rows); CSS grid emits row-major, so transpose
   for (let g = 0; g < per; g++) {
     const cell = slice[(g % cols) * rows + Math.floor(g / cols)];
     if (!cell) cells.push(`<div class="pv-cell" style="background:linear-gradient(145deg,rgba(255,255,255,.25),rgba(255,255,255,.1));border:1px dashed rgba(90,77,58,.3)"></div>`);
     else if (cell.kind === "folder") {
       const cur = P.openFolder === cell.id;
-      cells.push(`<div class="pv-cell dot" style="display:grid;place-items:center;background:linear-gradient(145deg,#fffdf8,#efe6d6);border:${cur ? "2px solid #7ac70c" : `1.5px solid ${fcolor(cell.id)}`};color:${fcolor(cell.id)};font-size:${Math.max(7, Math.round(side * .6))}px;line-height:1">${esc(finitial(cell.id))}</div>`);
+      cells.push(`<div class="pv-cell dot" style="display:grid;place-items:center;background:linear-gradient(145deg,#fffdf8,#efe6d6);border:${cur ? "2px solid #7ac70c" : `1.5px solid ${FOLDER_BLUE}`};color:${FOLDER_BLUE};font-size:${Math.max(7, Math.round(side * .6))}px;line-height:1">${esc(finitial(cell.id))}</div>`);
     } else if (cell.kind === "system") {
       if (cell.it.hole) cells.push(`<div class="pv-cell" style="background:linear-gradient(145deg,rgba(255,255,255,.25),rgba(255,255,255,.1));border:1px dashed rgba(90,77,58,.3)"></div>`);
-      else if (cell.it.icon) cells.push(`<div class="pv-cell" style="border:1px solid rgba(0,0,0,.15);opacity:.8"><img src="data:image/png;base64,${cell.it.icon}"></div>`);
+      else if (cell.it.icon) cells.push(`<div class="pv-cell" style="border:1px solid rgba(0,0,0,.15)"><img src="data:image/png;base64,${cell.it.icon}"></div>`);
       else cells.push(`<div class="pv-cell" style="border:1px dashed rgba(90,77,58,.4);background:rgba(90,77,58,.15)"></div>`);
     } else {
       const it = cell.it;
@@ -263,8 +263,8 @@ function selName() {
 function gridScreen() {
   const px = { S: 46, M: 60, L: 76 }[P.iconSize];
   if (P.openFolder !== null) return previewCol() + folderScreen(px);
-  // mesma ordem visual do preview/console: paginas de linhas x colunas preenchidas
-  // coluna-major (pos n -> col n/linhas). CSS grid emite row-major, entao transpoe.
+  // same visual order as the preview/console: pages of rows x columns filled
+  // column-major (pos n -> col n/rows). CSS grid emits row-major, so transpose.
   const rows = P.viewRows, cols = COLS[rows - 1], per = rows * cols;
   const seq = homeSeq();
   const pages = Math.max(1, Math.ceil(seq.length / per));
@@ -291,6 +291,7 @@ function gridScreen() {
       <div class="sortchip" id="sortChip">⇅ Sort: ${esc(P.sortMode)} <span style="color:var(--mut)">▾</span>
         ${P.sortMenu ? `<div class="menu" id="sortMenu">
           <div data-preset="az">A → Z</div><div data-preset="za">Z → A</div>
+          <div data-preset="date_asc">Release date ↑</div><div data-preset="date_desc">Release date ↓</div>
         </div>` : ""}
       </div>
     </div>
@@ -300,10 +301,8 @@ function gridScreen() {
 }
 
 function folderScreen(px) {
-  const id = P.openFolder, c = fcolor(id);
+  const id = P.openFolder, c = FOLDER_BLUE;
   const members = folderMembers(id);
-  const swatches = FCOLORS.map(sc =>
-    `<div class="swatch ${sc === c ? "on" : ""}" data-swatch="${sc}" style="background:${sc}"></div>`).join("");
   const empties = `<div style="display:flex;flex-direction:column;align-items:center;gap:6px"><div style="width:56px;height:56px;border-radius:12px;border:2px dashed var(--line2)"></div></div>`
     .repeat(Math.max(0, 16 - members.length));
   return `<div class="main-col" style="padding:18px 26px">
@@ -321,7 +320,6 @@ function folderScreen(px) {
         ${S.launcherWritable
           ? `<input id="folderNameInput" maxlength="16" value="${esc(fname(id))}" title="Press Enter to rename (staged)" style="font-size:17px;font-weight:900;font-family:inherit;color:var(--ink);background:transparent;border:none;border-bottom:2px dashed var(--line2);padding:2px 0;max-width:260px;outline:none">`
           : `<div style="font-size:17px;font-weight:900">${esc(fname(id))}</div>`}
-        <div style="display:flex;align-items:center;gap:8px">${swatches}</div>
       </div>
     </div>
     <div style="display:flex;align-items:baseline;gap:10px;margin:18px 0 10px">
@@ -355,7 +353,7 @@ function statusBar() {
   </div>`;
 }
 
-// Preview estatico da v2 — regras nao tocam o backend.
+// Static v2 preview — rules do not touch the backend.
 function rulesScreen() {
   const rows = RULES.map((r, i) => `
     <div style="display:flex;align-items:center;gap:12px;background:var(--card);border:2px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:0 3px 0 rgba(222,206,186,.5);opacity:${r.on ? "1" : ".55"}">
@@ -394,7 +392,7 @@ function rulesScreen() {
   </div>`;
 }
 
-// Preview estatico da v2 — so o gradiente do LIVE PREVIEW segue o tema escolhido.
+// Static v2 preview — only the LIVE PREVIEW gradient follows the chosen theme.
 function themesScreen() {
   const cards = THEMES.map(t => `
     <div data-theme="${t.id}" style="display:flex;flex-direction:column;gap:8px;background:var(--card);border:${t.id === P.themeId ? "2.5px solid var(--red)" : "2px solid var(--line)"};border-radius:12px;padding:10px;box-shadow:0 3px 0 rgba(222,206,186,.5);cursor:pointer">
@@ -496,17 +494,8 @@ function syncScreen() {
 }
 
 function settingsScreen() {
-  const langs = [
-    { id: "pt-BR", n: "Português (Brasil)" },
-    { id: "en-US", n: "English (US)" },
-    { id: "es", n: "Español" }
-  ].map(l => `<span class="${P.language === l.id ? "on" : ""}" data-lang="${l.id}" style="padding:5px 12px;white-space:nowrap">${l.n}</span>`).join("");
   return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:20px 26px;gap:10px;max-width:640px;overflow:auto">
     <div style="font-weight:900;font-size:17px;margin-bottom:6px">Settings</div>
-    <div class="card setrow">
-      <div><div style="font-weight:800;font-size:13.5px">Language / Idioma</div><div style="font-size:11.5px;color:var(--mut);font-weight:700">app texts and dates</div></div>
-      <div class="seg" id="langSeg" style="background:#faecd4">${langs}</div>
-    </div>
     <div class="card setrow">
       <div><div style="font-weight:800;font-size:13.5px">SD card drive</div><div style="font-size:11.5px;color:var(--mut);font-weight:700">where your console's card is mounted</div></div>
       <div class="chipbtn" id="sdDriveChip" style="position:relative;border-width:1.5px;border-radius:8px;padding:6px 14px;font-size:12.5px;font-weight:800">${esc(S.sd.root || "not found")} <span style="color:var(--mut)">▾</span>
@@ -553,7 +542,7 @@ function writeModal() {
   </div></div>`;
 }
 
-// ---- eventos ----------------------------------------------------------------
+// ---- events -------------------------------------------------------------------
 function bind() {
   const $ = id => document.getElementById(id);
   document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
@@ -595,12 +584,29 @@ function bind() {
   };
   if ($("closeFolder")) $("closeFolder").onclick = () => { P.openFolder = null; render(); };
   if ($("closeFolderX")) $("closeFolderX").onclick = () => { P.openFolder = null; render(); };
-  document.querySelectorAll("[data-swatch]").forEach(el => el.onclick = () => {
-    P.folderColors[P.openFolder] = el.dataset.swatch; savePrefs(); render();
-  });
   const needsDump = () => toast("Needs a system save dump. See the SYNC tab");
-  if ($("newFolderBtn")) $("newFolderBtn").onclick = () =>
-    refresh("folder_create").then(() => toast("Folder created (staged)"));
+  if ($("newFolderBtn")) $("newFolderBtn").onclick = () => {
+    $("modal").innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal">
+      <div style="font-weight:900;font-size:16px">New folder</div>
+      <div style="font-size:12.5px;color:var(--mut);font-weight:700">Name it now or keep the default. The folder stays staged until you write.</div>
+      <input id="newFolderName" maxlength="16" placeholder="New folder" style="font-size:14px;font-weight:800;font-family:inherit;color:var(--ink);background:#faecd4;border:1px solid var(--line2);border-radius:9px;padding:10px 12px;outline:none">
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <div class="btn" id="cancelNewFolder" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Cancel</div>
+        <div class="btn primary" id="confirmNewFolder" style="padding:9px 18px;font-size:12.5px;border-radius:9px">Save</div>
+      </div>
+    </div></div>`;
+    const inp = $("newFolderName");
+    inp.focus();
+    const save = () => {
+      const name = inp.value.trim();
+      $("modal").innerHTML = "";
+      refresh("folder_create", [name || null]).then(() => toast("Folder created (staged)"));
+    };
+    inp.onkeydown = e => { if (e.key === "Enter") save(); };
+    $("cancelNewFolder").onclick = () => ($("modal").innerHTML = "");
+    $("modalBg").onclick = e => { if (e.target.id === "modalBg") $("modal").innerHTML = ""; };
+    $("confirmNewFolder").onclick = save;
+  };
   if ($("folderNameInput")) {
     const inp = $("folderNameInput");
     inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
@@ -663,9 +669,6 @@ function bind() {
   });
 
   // SETTINGS
-  if ($("langSeg")) $("langSeg").querySelectorAll("[data-lang]").forEach(el => el.onclick = () => {
-    P.language = el.dataset.lang; savePrefs(); render(); toast("Translations coming in v1.1");
-  });
   if ($("sdDriveChip")) $("sdDriveChip").onclick = async e => {
     const root = e.target.dataset && e.target.dataset.drive;
     if (root) {
@@ -681,7 +684,7 @@ function bind() {
   };
   if ($("backupChange")) $("backupChange").onclick = async () => {
     const before = S.backups_dir;
-    const st = await call("pick_backups_dir");  // dialogo nativo no backend
+    const st = await call("pick_backups_dir");  // native folder dialog on the backend
     if (st) {
       S = st; render();
       if (S.backups_dir !== before) toast("Backup folder changed");
@@ -692,7 +695,7 @@ function bind() {
   if ($("labelsToggle")) $("labelsToggle").onclick = () => { P.showLabels = !P.showLabels; savePrefs(); render(); };
   if ($("checkUpdates")) $("checkUpdates").onclick = () => toast("You're on the latest version");
 
-  // grid: selecao (jogos), drag por chave de entidade (g:/n:/f:/cart), pastas
+  // grid: selection (games), drag by entity key (g:/n:/f:/cart), folders
   document.querySelectorAll(".item[data-slot]").forEach(el => {
     el.onclick = () => { P.selected = +el.dataset.slot; render(); };
   });
@@ -704,18 +707,17 @@ function bind() {
     el.ondragstart = e => {
       P.dragKey = el.dataset.ekey;
       e.dataTransfer.effectAllowed = "move";
-      setTimeout(() => el.classList.add("dragging")); // apos o browser capturar o ghost
+      setTimeout(() => el.classList.add("dragging")); // after the browser captures the drag ghost
     };
     el.ondragend = () => {
       el.classList.remove("dragging");
-      if (P.dragKey !== null) { P.dragKey = null; render(); } // cancelado: restaura ordem de S
+      if (P.dragKey !== null) { P.dragKey = null; render(); } // cancelled: restore the order from S
     };
   });
   const grid = document.getElementById("grid");
   if (grid) {
-    const clearMarks = () => grid.querySelectorAll(".drop-into,.swap-with").forEach(x => {
-      x.classList.remove("drop-into", "swap-with"); x.style.outlineColor = "";
-    });
+    const clearMarks = () => grid.querySelectorAll(".drop-into,.swap-with").forEach(x =>
+      x.classList.remove("drop-into", "swap-with"));
     grid.ondragover = e => {
       if (P.dragKey === null) return;
       e.preventDefault();
@@ -724,11 +726,10 @@ function bind() {
       if (!t || t.classList.contains("dragging")) return;
       const k = dragKind();
       if (t.dataset.folderTile !== undefined && (k === "g" || k === "n")) {
-        t.classList.add("drop-into");                  // titulo sobre pasta = mover para dentro
-        t.style.outlineColor = fcolor(+t.dataset.folderTile);
-      } else if (t.dataset.ekey !== undefined) {       // qualquer par de tiles = trocar de lugar
+        t.classList.add("drop-into");                  // title over a folder = move it inside
+      } else if (t.dataset.ekey !== undefined) {       // any pair of tiles = swap places
         t.classList.add("swap-with");
-      }                                                // tile fixo/placeholder: alvo invalido
+      }                                                // pinned tile/placeholder: invalid target
     };
     grid.ondrop = e => {
       e.preventDefault();

@@ -1,5 +1,5 @@
-"""Integracao real: save3ds + chaves reais contra o SD SANDBOX (copia).
-Nunca toca o SD real. Pulados se boot9/movable/sandbox nao existirem.
+"""Real integration: save3ds + real keys against the SANDBOX SD (a copy).
+Never touches the real SD. Skipped if boot9/movable/sandbox do not exist.
 """
 import shutil
 from pathlib import Path
@@ -16,12 +16,12 @@ SD_SRC = ROOT / "sandbox" / "sd"
 ready = all(p.exists() for p in
             [KEYS / "boot9.bin", KEYS / "movable.sed", SD_SRC,
              ROOT / "tools" / "save3ds" / "save3ds_fuse.exe"])
-pytestmark = pytest.mark.skipif(not ready, reason="sandbox/chaves reais ausentes")
+pytestmark = pytest.mark.skipif(not ready, reason="sandbox/real keys missing")
 
 
 @pytest.fixture()
 def sd(tmp_path):
-    """Copia fresca do SD sandbox por teste — nem o sandbox original e alterado."""
+    """Fresh copy of the sandbox SD per test: not even the original sandbox is altered."""
     dst = tmp_path / "sd"
     shutil.copytree(SD_SRC, dst)
     return dst
@@ -67,10 +67,10 @@ def test_roundtrip_edit_import_reextract(sd, s3, tmp_path):
 nand_ready = ready and (KEYS / "homemenu_save.bin").exists() and (KEYS / "Launcher.dat").exists()
 
 
-@pytest.mark.skipif(not nand_ready, reason="container do system save ausente")
+@pytest.mark.skipif(not nand_ready, reason="system save container missing")
 def test_nandsave_roundtrip_on_copy(s3, tmp_path):
-    """Canal --nandsave: extract == dump GM9; import + re-extract preserva tudo.
-    Roda so sobre copia tmp do container; NAND real jamais e tocada por aqui."""
+    """--nandsave channel: extract == GM9 dump; import + re-extract preserves everything.
+    Runs only on a tmp copy of the container; the real NAND is never touched here."""
     nand = s3.build_nand_tree(tmp_path, KEYS / "homemenu_save.bin", "0002008f")
     out1 = tmp_path / "out1"
     s3.nand_extract("0002008f", nand, out1)
@@ -86,10 +86,10 @@ def test_nandsave_roundtrip_on_copy(s3, tmp_path):
 
 
 def test_real_sd_untouched_guard():
-    """Nenhum teste altera o SD real: hash do extdata em G: e comparado no inicio/fim da sessao."""
+    """No test alters the real SD: the extdata hash on G: is compared at session start/end."""
     real = Path("G:/Nintendo 3DS")
     if not real.exists():
-        pytest.skip("SD real nao montado")
+        pytest.skip("real SD not mounted")
     import hashlib
     h = hashlib.sha256()
     ext = next(real.glob("*/*/extdata/00000000/0000008f"))
@@ -100,6 +100,6 @@ def test_real_sd_untouched_guard():
     digest = h.hexdigest()
     marker = Path(__file__).parent / ".real_sd_hash"
     if marker.exists():
-        assert marker.read_text() == digest, "SD REAL FOI MODIFICADO por algum teste!"
+        assert marker.read_text() == digest, "REAL SD WAS MODIFIED by some test!"
     else:
         marker.write_text(digest)

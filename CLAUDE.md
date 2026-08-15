@@ -51,7 +51,9 @@ F:\Projects\3DSort\
 │   ├── launcher.py         ← classe Launcher: parse/serialize do Launcher.dat (NAND)
 │   ├── icons.py            ← Cache.dat/CacheD.dat → nomes + ícones PNG base64 (SMDH)
 │   ├── store.py            ← Staging (undo/redo por snapshot) e Backups (.3dsl + jsonl)
-│   └── sdcard.py           ← detecção SD/console/região + wrapper save3ds (--sdext e --nandsave)
+│   ├── sdcard.py           ← detecção SD/console/região + wrapper save3ds (--sdext e --nandsave)
+│   ├── titledates.py       ← tid → data de lançamento (tabela offline embutida)
+│   └── titledates.json.gz  ← tabela gerada por tools/build_titledates.py (COMMITADA; ~16KB)
 ├── ui/
 │   ├── index.html          ← tela única, CSS fiel ao protótipo (paleta creme/DotGothic16)
 │   └── app.js              ← JS puro; render por innerHTML + bind(); estado P (prefs) + S (backend)
@@ -63,8 +65,10 @@ F:\Projects\3DSort\
 │   ├── test_sdcard.py      ← unit: console/região; id0 do movable; árvore NAND sintética
 │   ├── test_api_state.py   ← unit: merge launcher/SD no get_state (mock)
 │   ├── test_api_launcher_edit.py ← unit: swaps entre tipos, lifecycle de pastas, inject
+│   ├── test_titledates.py  ← unit: tabela de datas + presets de sort por data
 │   └── test_integration.py ← integração REAL (sdext + nandsave) sobre cópias + guard do G:
 ├── tools/save3ds/save3ds_fuse.exe  ← v1.3.0 (wwylele/save3ds), extract/import de extdata
+├── tools/build_titledates.py ← gera core/titledates.json.gz (3dsdb + GameTDB; precisa internet)
 └── sandbox/                ← NUNCA versionar. Cópia do SD real + chaves do console do dev
     ├── sd/Nintendo 3DS/<id0>/<id1>/extdata/00000000/0000008f/...
     └── keys/{boot9.bin, movable.sed, essential.exefs}
@@ -92,7 +96,7 @@ Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups,settings.
 ## 4. Como rodar
 
 ```powershell
-# testes (106; integração real é pulada sem sandbox/chaves; o guard do SD real
+# testes (113; integração real é pulada sem sandbox/chaves; o guard do SD real
 # re-registra a baseline quando tests/.real_sd_hash não existe)
 python -m pytest tests -q
 
@@ -368,7 +372,13 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   tipos; pasta/cart só no home), `set_folder(key, folder)` (g/n; NAND ganha posição
   explícita = menor livre no destino), `folder_create()`, `folder_rename(fid, name)`,
   `folder_empty(fid)`, `folder_delete(fid)` (membros voltam ao home), `sort_preset`,
-  `undo/redo/reset_staging`. Mutações de launcher exigem `launcherWritable`.
+  `undo/redo/reset_staging`. `folder_create(name=None)` aceita nome opcional (mesma
+  validação do rename: 1..16 unidades UTF-16; None/"" = "New folder") — a UI pede o
+  nome num modal antes de criar (Cancel não cria). `sort_preset` aceita `az`, `za`,
+  `date_asc`, `date_desc`; os de data usam `core/titledates.py` (tabela offline
+  tid→"YYYY-MM-DD" gerada por `tools/build_titledates.py` de 3dsdb + GameTDB;
+  título sem data vai para o FIM nos dois sentidos; tabela ausente = tudo sem data,
+  sort vira no-op estável). Mutações de launcher exigem `launcherWritable`.
   Todo `write_sd` zera o array de status (desembrulho sempre ligado, §5.4) e
   enxerta a região de temas 0x13B8+ da versão atual do cartão (graft, §5.4).
 - `write_sd()` é **all-or-nothing** (SD + launcher do MESMO snapshot): staged>0 →
@@ -413,16 +423,22 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   do usuário 2026-08-14): identidade do drag = `P.dragKey` (chave de entidade, §6) lida
   de `data-ekey` — jogos sempre; apps NAND/pastas/cart só com `launcherWritable`. Drop
   sobre qualquer tile com ekey = `swap_items` (`.swap-with`); jogo/NAND sobre pasta =
-  `set_folder` (`.drop-into`, anel na cor da pasta) — para trocar COM a pasta,
+  `set_folder` (`.drop-into`, anel azul de pasta) — para trocar COM a pasta,
   arrasta-se a PASTA sobre o item. Células vazias e holes não são alvo (swap não tem
   par). Nada muda no DOM durante o drag; commit no drop + animação FLIP
   (`captureGrid`/`playFlip`, WAAPI) por `data-key` (`s<slot>`/`n<slot>`/`cart`/
   `f<id>`/`h<pos>`). Clique abre pasta; `#removeZone` = tirar da pasta; drag cancelado
   limpa via `render()` no dragend. Separadores `.page-sep` = quebras de página do
-  console. Lifecycle de pastas: botão `+ Folder` no grid-head, rename por input
+  console. Lifecycle de pastas: botão `+ Folder` no grid-head abre modal de nome
+  (Save cria com o nome ou "New folder" se vazio; Cancel não cria), rename por input
   (commit em Enter/blur — NUNCA por tecla, o innerHTML rouba o foco), delete com modal
   de confirmação. SYNC mostra banner de inject pendente com Verify/`Mark as done`.
-- Strings hoje em inglês (como o protótipo); i18n pt-BR/EN é pendência de polish.
+- Decisões visuais de 2026-08-15: pastas são SEMPRE azuis (`FOLDER_BLUE = #3b4cca`;
+  seletor de cor removido — não existe no 3DS real) e tiles de sistema sem
+  transparência (o fluxo NAND é cidadão de primeira classe desde a 0C).
+- **Projeto é inglês-only** (decisão do usuário 2026-08-15): UI, comentários de
+  código, mensagens de erro e scripts GM9 gerados. O seletor de idioma do SETTINGS
+  foi removido (era stub sem i18n); não reintroduzir i18n sem pedido novo.
 
 ## 8. Testes — estratégia em camadas (manter TODAS)
 
@@ -508,14 +524,22 @@ modal; import re-autodetecta drive se a letra persistida sumiu). 106 testes
   1 título ficou embrulhado (condição interna de "novo" do console, fora dos nossos
   arquivos) — abre-se uma vez e resolve.
 
-**Fase 4 (próxima)**: PyInstaller onefile embutindo `save3ds_fuse.exe` e `ui/`;
-requirements.txt; primeira execução com onboarding guiado (dump boot9/movable com validação
-de id0, escolha do drive); README de distribuição; testar janela pywebview; smoke em
-máquina limpa.
+**Feito (2026-08-15, polish inglês-only + sort por data)**: seletor de idioma
+removido do SETTINGS (projeto inglês-only, §7); todos os comentários/docstrings e
+mensagens de erro do código traduzidos para inglês (incluindo os comentários dentro
+dos scripts GM9 gerados); transparência dos tiles de sistema removida; cor de pasta
+fixa em azul (seletor removido); sort por data de lançamento asc/desc
+(`core/titledates.py` + tabela offline de 3756 títulos, 16KB gz, §6); `+ Folder`
+com modal de nome (Cancel não cria). 113 testes.
+
+**Fase 4 (próxima)**: PyInstaller onefile embutindo `save3ds_fuse.exe`, `ui/` e
+`core/titledates.json.gz` (data file!); requirements.txt; primeira execução com
+onboarding guiado (dump boot9/movable com validação de id0, escolha do drive);
+README de distribuição; testar janela pywebview; smoke em máquina limpa.
 
 **v1.1 restante (pré-release)**: `cancel_inject` (abandonar payload pendente sem
 limpeza manual); erro de `write_sd` DESTACADO no modal da UI (hoje é toast e passou
-despercebido, custando idas ao console); i18n pt-BR/EN; fontes offline.
+despercebido, custando idas ao console); fontes offline.
 
 **v2**: aba RULES (motor de regras), THEMES/badges.
 

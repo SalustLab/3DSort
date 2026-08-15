@@ -1,10 +1,10 @@
-"""Cache de icones do HOME menu: Cache.dat (indice tid->entrada) e
-CacheD.dat (uma entrada de 0x36C0 por titulo — icone E nomes).
+"""HOME menu icon cache: Cache.dat (tid->entry index) and
+CacheD.dat (one 0x36C0 entry per title - icon AND names).
 
-Titulos 3DS: entrada SMDH (magic "SMDH"); icone grande 48x48 RGB565, tiles 8x8
-em ordem Morton (padrao de textura 3DS). Titulos TWL (DSiWare, ex. TWiLight
-Menu++): header SRL @0 + banner NDS @0x378 (validado em dump real) — titulo
-UTF-16 por lingua e icone 32x32 4bpp paletado RGB555, indice 0 = transparente.
+3DS titles: SMDH entry (magic "SMDH"); large 48x48 RGB565 icon, 8x8 tiles
+in Morton order (3DS texture pattern). TWL titles (DSiWare, e.g. TWiLight
+Menu++): SRL header @0 + NDS banner @0x378 (validated on a real dump) - UTF-16
+title per language and 32x32 4bpp RGB555 paletted icon, index 0 = transparent.
 """
 import base64
 import io
@@ -16,7 +16,7 @@ SMDH_LARGE_LEN = 0x1200
 TWL_BANNER_OFF = 0x378
 TWL_VERSIONS = (0x0001, 0x0002, 0x0003, 0x0103)
 
-# (dx, dy) da z-curve dentro de um tile 8x8
+# (dx, dy) of the z-curve inside an 8x8 tile
 MORTON = [
     ((i & 1) | ((i & 4) >> 1) | ((i & 16) >> 2),
      ((i & 2) >> 1) | ((i & 8) >> 2) | ((i & 32) >> 3))
@@ -25,7 +25,7 @@ MORTON = [
 
 
 def cache_index(cache: bytes) -> dict[int, int]:
-    """Cache.dat -> {titleID: indice no CacheD.dat}. Entradas vazias = tid 0xFF.."""
+    """Cache.dat -> {titleID: index in CacheD.dat}. Empty entries = tid 0xFF.."""
     out = {}
     for i in range((len(cache) - 8) // 16):
         tid = struct.unpack_from("<Q", cache, 8 + i * 16)[0]
@@ -39,7 +39,7 @@ def smdh_entry(cached: bytes, index: int) -> bytes:
 
 
 def smdh_short_name(entry: bytes, lang: int = 1) -> str | None:
-    """Nome curto do SMDH. lang 1 = ingles (0 = japones)."""
+    """SMDH short name. lang 1 = English (0 = Japanese)."""
     if entry[:4] != b"SMDH":
         return None
     off = 0x8 + lang * 0x200
@@ -61,7 +61,7 @@ def decode_icon(icon: bytes, size: int = 48):
 
 
 def icon_png_b64(entry: bytes) -> str | None:
-    """SMDH -> PNG base64 do icone 48x48, ou None se a entrada nao for SMDH."""
+    """SMDH -> base64 PNG of the 48x48 icon, or None if the entry is not SMDH."""
     if entry[:4] != b"SMDH":
         return None
     img = decode_icon(entry[SMDH_LARGE_OFF:SMDH_LARGE_OFF + SMDH_LARGE_LEN])
@@ -79,7 +79,7 @@ def _twl_banner(entry: bytes) -> bytes | None:
 
 
 def twl_short_name(entry: bytes, lang: int = 1) -> str | None:
-    """1a linha do titulo do banner NDS (lang 1 = ingles), ou None se nao-TWL."""
+    """First line of the NDS banner title (lang 1 = English), or None if non-TWL."""
     b = _twl_banner(entry)
     if b is None:
         return None
@@ -88,7 +88,7 @@ def twl_short_name(entry: bytes, lang: int = 1) -> str | None:
 
 
 def twl_icon_png_b64(entry: bytes) -> str | None:
-    """Banner NDS -> PNG base64 do icone (32x32 4bpp -> 48x48), ou None."""
+    """NDS banner -> base64 PNG of the icon (32x32 4bpp -> 48x48), or None."""
     from PIL import Image
     b = _twl_banner(entry)
     if b is None:

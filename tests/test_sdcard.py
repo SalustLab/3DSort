@@ -33,7 +33,7 @@ def test_find_console_missing(tmp_path):
 
 
 def test_find_console_no_home_extdata(tmp_path):
-    sd = make_sd(tmp_path, extdata_id="000002cd")  # so extdata de tema
+    sd = make_sd(tmp_path, extdata_id="000002cd")  # theme extdata only
     with pytest.raises(FileNotFoundError):
         find_console(sd)
 
@@ -52,7 +52,7 @@ def test_home_extdata_ids_cover_regions():
 
 
 @pytest.mark.skipif(not (SANDBOX / "keys" / "essential.exefs").exists(),
-                    reason="fixture real ausente")
+                    reason="real fixture missing")
 def test_extract_movable_from_real_essential(tmp_path):
     out = tmp_path / "movable.sed"
     Save3ds.extract_movable(SANDBOX / "keys" / "essential.exefs", out)
@@ -65,16 +65,16 @@ def test_save3ds_requires_resources(tmp_path):
         s.extract("000000000000008f", tmp_path / "sd", tmp_path / "out")
 
 
-# ---- canal NAND (v1.1) ----------------------------------------------------
+# ---- NAND channel (v1.1) ---------------------------------------------------
 
 def test_id0_from_movable_known_vector():
-    # KeyY = 16 bytes zero -> id0 pre-computado (SHA-256[:16] como 4 u32 LE em hex)
+    # KeyY = 16 zero bytes -> precomputed id0 (SHA-256[:16] as 4 u32 LE in hex)
     movable = bytes(0x110) + bytes(16) + bytes(0x20)
     assert id0_from_movable(movable) == "ff084737d59d71f775c89e9728d26cd5"
 
 
 @pytest.mark.skipif(not (SANDBOX / "keys" / "movable.sed").exists(),
-                    reason="fixture real ausente")
+                    reason="real fixture missing")
 def test_id0_from_real_movable_matches_console():
     movable = (SANDBOX / "keys" / "movable.sed").read_bytes()
     assert id0_from_movable(movable) == "REDACTED-ID0"

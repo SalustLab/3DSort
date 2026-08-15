@@ -36,9 +36,9 @@ def build_fixture(entries, folders=(), cart_pos=0xFFFF):
 def test_parse_entries_and_folders():
     raw = build_fixture(
         [(0, 0x0004001000021000, 0, -1),   # System Settings
-         (1, 0x0004001000021900, 5, 2),    # eShop dentro da pasta 2
-         (2, 0xFFFFFFFFFFFFFFFF, 3, -1),   # slot vazio (tid sentinela)
-         (3, 0x0004001000021700, -1, -1)], # inativo (pos -1)
+         (1, 0x0004001000021900, 5, 2),    # eShop inside folder 2
+         (2, 0xFFFFFFFFFFFFFFFF, 3, -1),   # empty slot (sentinel tid)
+         (3, 0x0004001000021700, -1, -1)], # inactive (pos -1)
         folders=[(2, 7, 3, "Sistema")], cart_pos=11)
     entries, folders, cart_pos = parse(raw)
     assert [(e.tid, e.pos, e.folder) for e in entries] == [
@@ -56,7 +56,7 @@ def test_rejects_bad_size():
         parse(b"\x00" * 10)
 
 
-# ---- classe Launcher (v1.1: escrita) ---------------------------------------
+# ---- Launcher class (v1.1: writing) ----------------------------------------
 
 def diff_offsets(a: bytes, b: bytes) -> set:
     assert len(a) == len(b)
@@ -64,7 +64,7 @@ def diff_offsets(a: bytes, b: bytes) -> set:
 
 
 def test_roundtrip_identity_at_both_sizes():
-    for extra in (0, 200):  # 3dbrew doc (0x2490) e console real (0x2558)
+    for extra in (0, 200):  # 3dbrew doc (0x2490) and real console (0x2558)
         raw = build_fixture([(0, 0x1000, 0, -1)]) + b"\xa5" * extra
         assert Launcher(raw).serialize() == raw
 
@@ -99,7 +99,7 @@ def test_mutations_touch_only_their_arrays():
 
 
 def test_next_folder_number_roundtrip_and_mirror():
-    # gate 0B: contador "proximo nº de pasta" u32 @0xD80 + byte espelho @0xD85
+    # gate 0B: "next folder number" counter u32 @0xD80 + mirror byte @0xD85
     raw = bytearray(build_fixture([]))
     struct.pack_into("<I", raw, OFF_NEXT_FOLDER_NUM, 2)
     raw[OFF_NEXT_FOLDER_NUM_MIRROR] = 2
@@ -121,7 +121,7 @@ def test_cart_pos_none_writes_sentinel():
 
 def test_folder_name_validation():
     ln = Launcher(build_fixture([], folders=[(0, 1, 2, "A")]))
-    ln.set_folder_name(0, "X" * 16)  # 16 unidades UTF-16 = 0x20 bytes, cabe
+    ln.set_folder_name(0, "X" * 16)  # 16 UTF-16 units = 0x20 bytes, fits
     assert ln.folders[0].name == "X" * 16
     with pytest.raises(ValueError):
         ln.set_folder_name(0, "X" * 17)
@@ -132,9 +132,9 @@ def test_folder_name_validation():
 def test_create_folder_picks_lowest_free_fid():
     raw = build_fixture([(0, 0x1000, 0, 3)], folders=[(0, 1, 2, "A")])
     ln = Launcher(raw)
-    # fid 0 ocupado (pos>=0); fid 3 referenciado por entrada ativa; menor livre = 1
+    # fid 0 taken (pos>=0); fid 3 referenced by an active entry; lowest free = 1
     assert ln.create_folder("New") == 1
-    assert [(f.id, f.name) for f in ln.folders if f.id == 1] == []  # pos ainda -1
+    assert [(f.id, f.name) for f in ln.folders if f.id == 1] == []  # pos still -1
     ln.set_folder_pos(1, 4)
     assert [(f.id, f.pos, f.rows, f.name) for f in ln.folders] == [
         (0, 1, 2, "A"), (1, 4, 2, "New")]
@@ -154,28 +154,28 @@ def test_delete_folder_requires_empty_and_clears_definition():
 
 
 def test_validate_catches_duplicates_and_dead_refs():
-    # duplicata no home: entrada NAND pos 5 + tile de pasta pos 5
+    # duplicate on home: NAND entry pos 5 + folder tile pos 5
     ln = Launcher(build_fixture([(0, 0x1000, 5, -1)], folders=[(0, 5, 2, "A")]))
     with pytest.raises(ValueError):
         ln.validate()
-    # duplicata dentro de pasta
+    # duplicate inside a folder
     ln = Launcher(build_fixture([(0, 0x1000, 2, 0), (1, 0x2000, 2, 0)],
                                 folders=[(0, 0, 2, "A")]))
     with pytest.raises(ValueError):
         ln.validate()
-    # ref de entrada NAND a pasta morta
+    # NAND entry ref to a dead folder
     ln = Launcher(build_fixture([(0, 0x1000, 0, 9)]))
     with pytest.raises(ValueError):
         ln.validate()
-    # ref SD (vinda do SaveData) a pasta morta
+    # SD ref (coming from the SaveData) to a dead folder
     ln = Launcher(build_fixture([]))
     with pytest.raises(ValueError):
         ln.validate(active_sd_refs={9})
-    # cart duplicado com entrada do home
+    # cart duplicated with a home entry
     ln = Launcher(build_fixture([(0, 0x1000, 3, -1)], cart_pos=3))
     with pytest.raises(ValueError):
         ln.validate()
-    # estado do console real e valido
+    # the real console state is valid
     ok = Launcher(build_fixture([(0, 0x1000, 0, -1), (1, 0x2000, 6, 0)],
                                 folders=[(0, 12, 2, "Homebrew")], cart_pos=11))
     ok.validate(active_sd_refs={0, -1})
@@ -184,9 +184,9 @@ def test_validate_catches_duplicates_and_dead_refs():
 REAL = Path(__file__).parent.parent / "sandbox" / "keys" / "Launcher.dat"
 
 
-@pytest.mark.skipif(not REAL.exists(), reason="dump real ausente")
+@pytest.mark.skipif(not REAL.exists(), reason="real dump missing")
 def test_real_dump_roundtrips_and_validates():
     raw = REAL.read_bytes()
     ln = Launcher(raw)
     assert ln.serialize() == raw
-    ln.validate()  # o estado real do console e, por definicao, valido
+    ln.validate()  # the real console state is, by definition, valid
