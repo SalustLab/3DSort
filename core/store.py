@@ -76,6 +76,18 @@ class Backups:
         self._prune()
         return entry
 
+    def move_root(self, new_root: Path):
+        """Muda a pasta de backups levando os zips e o historico junto."""
+        new_root = Path(new_root)
+        new_root.mkdir(parents=True, exist_ok=True)
+        if new_root.resolve() == self.root.resolve():
+            return
+        for p in list(self.root.glob("*.3dsl")) + [self._hist]:
+            if p.exists():
+                shutil.move(str(p), str(new_root / p.name))
+        self.root = new_root
+        self._hist = new_root / "history.jsonl"
+
     def history(self) -> list[dict]:
         if not self._hist.exists():
             return []

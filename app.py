@@ -19,7 +19,8 @@ from core.icons import (cache_index, icon_png_b64, smdh_entry, smdh_short_name,
                         twl_icon_png_b64, twl_short_name)
 from core.launcher import Launcher, parse as parse_launcher
 from core.savedata import SaveData, assign_positions
-from core.sdcard import NAND_SAVE_IDS, Save3ds, find_console, find_sd_drive
+from core.sdcard import (NAND_SAVE_IDS, Save3ds, find_console, find_sd_drive,
+                         id0_from_movable, list_3ds_roots)
 from core.store import Backups, Staging
 
 ROOT = Path(__file__).parent
@@ -57,9 +58,18 @@ class Api:
         """(Re)le o layout do SD para o workdir e reinicia o staging."""
         if self.sd_root is None:
             self.sd_root = find_sd_drive()
+        elif not (Path(self.sd_root) / "Nintendo 3DS").is_dir():
+            # letra do drive pode mudar entre execucoes: re-autodetecta
+            self.sd_root = find_sd_drive() or self.sd_root
         if self.sd_root is None:
             return {"error": "SD do 3DS nao encontrado"}
         self.console = find_console(self.sd_root)
+        # script sempre no SD ANTES de exigir chaves: o proprio dump e quem
+        # traz boot9/movable/container para o app ler (sem copia manual)
+        self._publish_dump_script()
+        err = self._resolve_keys()
+        if err:
+            return {"error": err}
         self._check_inject_receipt()
         ext = self.workdir / "extract"
         if ext.exists():
@@ -117,6 +127,43 @@ class Api:
     def _nand_save_id(self) -> str:
         region = self.console.region if self.console else "USA"
         return NAND_SAVE_IDS[region]
+
+    def _publish_dump_script(self):
+        """Publica o 3DSort_dump.gm9 no SD em todo import. E ele quem cospe
+        container + chaves em 0:/3DSort — o usuario nunca copia arquivo a mao."""
+        scripts = Path(self.sd_root) / "gm9" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        (scripts / "3DSort_dump.gm9").write_text(
+            gm9_dump_script(self.console.id0, self._nand_save_id()),
+            encoding="ascii", newline="\n")
+
+    def _resolve_keys(self) -> str | None:
+        """Resolve boot9/movable: SD (0:/3DSort do dump, depois gm9/out) tem
+        precedencia sobre os paths do build_api. Valida o movable contra o id0
+        da pasta (armadilha da chave velha, CLAUDE.md §5.3). Retorna msg de erro
+        amigavel ou None."""
+        if getattr(self.save3ds, "boot9", None) is None:  # mock nao usa chaves
+            return None
+        if self.sd_root is not None:
+            dirs = (Path(self.sd_root) / "3DSort", Path(self.sd_root) / "gm9" / "out")
+            for name, attr in (("boot9.bin", "boot9"), ("movable.sed", "movable")):
+                hit = next((d / name for d in dirs if (d / name).is_file()), None)
+                if hit is not None:
+                    setattr(self.save3ds, attr, hit)
+        missing = [n for n, p in (("boot9.bin", self.save3ds.boot9),
+                                  ("movable.sed", self.save3ds.movable))
+                   if not Path(p).exists()]
+        if missing:
+            return ("Console keys not found (" + ", ".join(missing) + "). Run the "
+                    "3DSort_dump script in GodMode9 (already on the SD in "
+                    "gm9/scripts), then Import from SD again.")
+        if (self.console is not None and
+                id0_from_movable(Path(self.save3ds.movable).read_bytes())
+                != self.console.id0):
+            return ("movable.sed does not match this SD card (key from an older "
+                    "console state?). Re-dump it in GodMode9 (run 3DSort_dump), "
+                    "then Import from SD again.")
+        return None
 
     def _find_container(self) -> Path | None:
         cands = []
@@ -612,13 +659,11 @@ class Api:
         shutil.copy2(new_container, payload)
         digest = hashlib.sha256(payload.read_bytes()).digest()
         (sd3 / "homemenu_save_new.bin.sha").write_bytes(digest)
+        self._publish_dump_script()
         scripts = Path(self.sd_root) / "gm9" / "scripts"
-        scripts.mkdir(parents=True, exist_ok=True)
-        id0 = self.console.id0
-        (scripts / "3DSort_dump.gm9").write_text(gm9_dump_script(id0, save_id),
-                                                 encoding="ascii", newline="\n")
-        (scripts / "3DSort_inject.gm9").write_text(gm9_inject_script(id0, save_id),
-                                                   encoding="ascii", newline="\n")
+        (scripts / "3DSort_inject.gm9").write_text(
+            gm9_inject_script(self.console.id0, save_id),
+            encoding="ascii", newline="\n")
         self._pending_path().write_text(json.dumps({
             "sha": digest.hex(), "when": time.strftime("%Y-%m-%d %H:%M:%S"),
             "changes": n_changes}), encoding="utf-8")
@@ -681,19 +726,90 @@ class Api:
         self._pending_path().unlink(missing_ok=True)
         return self.import_sd()
 
+    # ---- settings (drive do SD e pasta de backups) ---------------------------
+    def _save_settings(self):
+        """Persiste as escolhas do usuario ao lado do workdir
+        (real: %USERPROFILE%/3DSort/settings.json; mock: tmp). build_api le."""
+        sp = Path(self.workdir).parent / "settings.json"
+        sp.parent.mkdir(parents=True, exist_ok=True)
+        sp.write_text(json.dumps({
+            "sd_root": str(self.sd_root) if self.sd_root else None,
+            "backups_dir": str(self.backups.root)}), encoding="utf-8")
+
+    def list_drives(self):
+        roots = [str(p) for p in list_3ds_roots()]
+        cur = str(self.sd_root) if self.sd_root else None
+        if cur and cur not in roots:  # ex.: sandbox fora da varredura D..P
+            roots.insert(0, cur)
+        return {"drives": [{"root": r, "current": r == cur} for r in roots]}
+
+    def set_sd_root(self, path):
+        p = Path(path)
+        if not (p / "Nintendo 3DS").is_dir():
+            return {"error": f"No 'Nintendo 3DS' folder found in {path}"}
+        self.sd_root = p
+        self.console = None
+        self._save_settings()
+        return self.import_sd()  # re-deriva console, chaves, container, recibo
+
+    def pick_backups_dir(self):
+        """Abre o seletor de pasta nativo do Windows e aplica a escolha.
+        Cancelou = estado inalterado."""
+        path = pick_folder_native(str(self.backups.root))
+        if not path:
+            return self.get_state()
+        return self.set_backups_dir(path)
+
+    def set_backups_dir(self, path):
+        if not str(path).strip():
+            return {"error": "Backup folder path is empty"}
+        try:
+            self.backups.move_root(Path(path))
+        except OSError as e:
+            return {"error": f"Could not move backups: {e}"}
+        self._save_settings()
+        return self.get_state()
+
+
+def pick_folder_native(initial: str) -> str | None:
+    """Dialogo nativo de pasta: pywebview quando ha janela; senao tkinter
+    (modo --serve, backend roda na mesma maquina do navegador)."""
+    try:
+        import webview
+        if webview.windows:
+            r = webview.windows[0].create_file_dialog(webview.FOLDER_DIALOG,
+                                                      directory=initial)
+            return r[0] if r else None
+    except Exception:
+        pass
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        path = filedialog.askdirectory(initialdir=initial,
+                                       title="3DSort - Backup folder")
+        root.destroy()
+        return path or None
+    except Exception:
+        return None
+
 
 # ---- scripts GodMode9 (gerados por console: id0 e regiao conhecidos) --------
 def gm9_dump_script(id0: str, save_id: str) -> str:
     """Copia o system save do HOME menu para o SD. cp -h gera o .sha ao lado,
     que e a ancora anti-obsolescencia do script de injecao."""
-    return f"""# 3DSort: dump the HOME menu system save to the SD card
+    return f"""# 3DSort: dump the HOME menu system save and console keys to the SD card
 set SAVE "1:/data/{id0}/sysdata/{save_id}/00000000"
+cp --overwrite --no_cancel 1:/private/movable.sed 0:/3DSort/movable.sed
+cp --overwrite --no_cancel M:/boot9.bin 0:/3DSort/boot9.bin
 if not exist $[SAVE]
 \techo "HOME menu save not found. Wrong console or region?"
 \tgoto End
 end
 cp --hash --overwrite --no_cancel $[SAVE] 0:/3DSort/homemenu_save.bin
-echo "Dumped. Edit the layout in 3DSort on the PC, then run 3DSort_inject."
+echo "Dumped save and keys. Edit the layout in 3DSort on the PC, then run 3DSort_inject."
 @End
 """
 
@@ -892,6 +1008,13 @@ def build_api(mock: bool, sd_root: Path | None = None,
                    container=container)
     workdir = APP_DIR / "work"
     workdir.mkdir(parents=True, exist_ok=True)
+    try:
+        settings = json.loads((APP_DIR / "settings.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        settings = {}
+    if sd_root is None and settings.get("sd_root"):  # CLI --sd vence o settings
+        sd_root = Path(settings["sd_root"])
+    backups_root = Path(settings.get("backups_dir") or APP_DIR / "backups")
     sandbox_keys = ROOT / "sandbox" / "keys"
     launcher = container = None
     if not no_launcher:
@@ -899,10 +1022,13 @@ def build_api(mock: bool, sd_root: Path | None = None,
                                      APP_DIR / "Launcher.dat") if p.exists()), None)
         container = next((p for p in (sandbox_keys / "homemenu_save.bin",
                                       APP_DIR / "homemenu_save.bin") if p.exists()), None)
+    def key(name):  # fallback local; em runtime o SD tem precedencia (_resolve_keys)
+        cands = (sandbox_keys / name, APP_DIR / name)
+        return next((p for p in cands if p.exists()), cands[0])
     return Api(
         Save3ds(ROOT / "tools" / "save3ds" / "save3ds_fuse.exe",
-                sandbox_keys / "boot9.bin", sandbox_keys / "movable.sed"),
-        sd_root, workdir, Backups(APP_DIR / "backups"), launcher=launcher,
+                key("boot9.bin"), key("movable.sed")),
+        sd_root, workdir, Backups(backups_root), launcher=launcher,
         container=container)
 
 

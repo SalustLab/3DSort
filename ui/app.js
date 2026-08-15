@@ -6,7 +6,8 @@ const P = Object.assign(
   { tab: "GRID", iconSize: "M", viewRows: 4, page: 1, showLabels: true,
     sortMode: "Manual", folderColors: {}, themeId: "cosmos", language: "en-US" },
   JSON.parse(localStorage.getItem("prefs") || "{}"),
-  { openFolder: null, selected: null, sortMenu: false, dragKey: null }
+  { openFolder: null, selected: null, sortMenu: false, dragKey: null,
+    driveMenu: false, drives: null }
 );
 const savePrefs = () => localStorage.setItem("prefs", JSON.stringify({
   tab: P.tab, iconSize: P.iconSize, viewRows: P.viewRows, page: P.page, showLabels: P.showLabels,
@@ -508,7 +509,11 @@ function settingsScreen() {
     </div>
     <div class="card setrow">
       <div><div style="font-weight:800;font-size:13.5px">SD card drive</div><div style="font-size:11.5px;color:var(--mut);font-weight:700">where your console's card is mounted</div></div>
-      <div class="chipbtn" id="sdDriveChip" style="border-width:1.5px;border-radius:8px;padding:6px 14px;font-size:12.5px;font-weight:800">${esc(S.sd.root || "not found")} <span style="color:var(--mut)">▾</span></div>
+      <div class="chipbtn" id="sdDriveChip" style="position:relative;border-width:1.5px;border-radius:8px;padding:6px 14px;font-size:12.5px;font-weight:800">${esc(S.sd.root || "not found")} <span style="color:var(--mut)">▾</span>
+        ${P.driveMenu ? `<div class="menu">${(P.drives || []).map(d =>
+          `<div data-drive="${esc(d.root)}">${esc(d.root)}${d.current ? ' <span style="color:var(--red)">●</span>' : ""}</div>`).join("")
+          || '<div style="color:var(--mut);cursor:default">no 3DS card found</div>'}</div>` : ""}
+      </div>
     </div>
     <div class="card setrow">
       <div><div style="font-weight:800;font-size:13.5px">Backup folder</div><div style="font-size:11.5px;color:var(--mut);font-weight:700">${esc(S.backups_dir || "")}</div></div>
@@ -661,8 +666,27 @@ function bind() {
   if ($("langSeg")) $("langSeg").querySelectorAll("[data-lang]").forEach(el => el.onclick = () => {
     P.language = el.dataset.lang; savePrefs(); render(); toast("Translations coming in v1.1");
   });
-  if ($("sdDriveChip")) $("sdDriveChip").onclick = () => toast("Coming in v2");
-  if ($("backupChange")) $("backupChange").onclick = () => toast("Coming in v2");
+  if ($("sdDriveChip")) $("sdDriveChip").onclick = async e => {
+    const root = e.target.dataset && e.target.dataset.drive;
+    if (root) {
+      P.driveMenu = false; P.drives = null;
+      const st = await call("set_sd_root", [root]);
+      if (st) { S = st; render(); toast("SD drive: " + root); } else render();
+    } else if (P.driveMenu) { P.driveMenu = false; render(); }
+    else {
+      const r = await call("list_drives");
+      if (!r) return;
+      P.drives = r.drives; P.driveMenu = true; render();
+    }
+  };
+  if ($("backupChange")) $("backupChange").onclick = async () => {
+    const before = S.backups_dir;
+    const st = await call("pick_backups_dir");  // dialogo nativo no backend
+    if (st) {
+      S = st; render();
+      if (S.backups_dir !== before) toast("Backup folder changed");
+    }
+  };
   if ($("autoBackupToggle")) $("autoBackupToggle").onclick = () => toast("Always on (safety rule)");
   if ($("confirmToggle")) $("confirmToggle").onclick = () => toast("Always on (safety rule)");
   if ($("labelsToggle")) $("labelsToggle").onclick = () => { P.showLabels = !P.showLabels; savePrefs(); render(); };
