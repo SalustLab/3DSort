@@ -48,7 +48,10 @@ class Backups:
         self.root.mkdir(parents=True, exist_ok=True)
         self._hist = self.root / "history.jsonl"
 
-    def create(self, extdata_dir: Path, kind: str, note: str) -> dict:
+    def create(self, extdata_dir: Path, kind: str, note: str,
+               extra: dict | None = None) -> dict:
+        """extra: {arcname: bytes | Path} — arquivos fora da arvore de extdata
+        (ex.: __nand__/Launcher.dat); o restore os separa do extract do SD."""
         ts = time.strftime("%Y%m%d-%H%M%S")
         bid = f"{ts}-{len(self.history())}"
         zpath = self.root / f"layout_{bid}.3dsl"
@@ -56,6 +59,16 @@ class Backups:
             for p in sorted(Path(extdata_dir).rglob("*")):
                 if p.is_file():
                     z.write(p, p.relative_to(extdata_dir).as_posix())
+                elif p.is_dir():
+                    # diretorio vazio (ex.: boss/) PRECISA sobreviver ao zip:
+                    # extdata importado sem ele faz o HOME reconstruir o
+                    # SaveData inteiro (statuses, tema, pastas) — Fase 0C
+                    z.writestr(p.relative_to(extdata_dir).as_posix() + "/", "")
+            for arcname, src in (extra or {}).items():
+                if isinstance(src, (bytes, bytearray)):
+                    z.writestr(arcname, src)
+                else:
+                    z.write(src, arcname)
         entry = {"id": bid, "file": zpath.name, "kind": kind, "note": note,
                  "when": time.strftime("%Y-%m-%d %H:%M:%S")}
         with self._hist.open("a", encoding="utf-8") as f:

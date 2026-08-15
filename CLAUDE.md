@@ -1,7 +1,8 @@
 # CLAUDE.md — 3DSort
 
 Contexto estático para desenvolvimento assistido por IA. Leia antes de qualquer mudança.
-Última revisão: 2026-08-14 (fases 1–3 concluídas).
+Última revisão: 2026-08-15 (v1.1 completo: gates de hardware 0B/0C VALIDADOS no console
+real, ver §10; próxima etapa é a Fase 4, empacotamento).
 
 ## 1. O que é o projeto
 
@@ -18,7 +19,9 @@ ficará no console, escrita staged com backup automático e histórico restaurá
   protótipo.
 - **Escopo v1**: abas GRID, SYNC e SETTINGS; ícones reais dos jogos (requisito firme do
   usuário); staging/undo/redo; backups. Abas RULES (auto-sort por regras) e THEMES/badges
-  ficaram para v2. Criar/renomear pastas: v1.1 (ver §5.7).
+  ficaram para v2. v1.1 (implementado e validado em hardware, §10): reordenar apps
+  NAND/pastas/Game Card e criar/renomear/apagar pastas via escrita do Launcher.dat com
+  injeção assistida por GodMode9; desembrulho automático e preservação de tema.
 
 ## 2. Arquitetura (decidida e aprovada — não reabrir sem motivo novo)
 
@@ -45,18 +48,22 @@ F:\Projects\3DSort\
 ├── conftest.py             ← vazio; existe só para o pytest achar core/ no sys.path
 ├── core/
 │   ├── savedata.py         ← parse/serialize do SaveData.dat (layout do HOME menu)
+│   ├── launcher.py         ← classe Launcher: parse/serialize do Launcher.dat (NAND)
 │   ├── icons.py            ← Cache.dat/CacheD.dat → nomes + ícones PNG base64 (SMDH)
 │   ├── store.py            ← Staging (undo/redo por snapshot) e Backups (.3dsl + jsonl)
-│   └── sdcard.py           ← detecção SD/console/região + wrapper do save3ds_fuse
+│   └── sdcard.py           ← detecção SD/console/região + wrapper save3ds (--sdext e --nandsave)
 ├── ui/
 │   ├── index.html          ← tela única, CSS fiel ao protótipo (paleta creme/DotGothic16)
 │   └── app.js              ← JS puro; render por innerHTML + bind(); estado P (prefs) + S (backend)
 ├── tests/
 │   ├── test_savedata.py    ← unit: round-trip binário, invariantes
+│   ├── test_launcher.py    ← unit: parse + round-trip/diff-locality/lifecycle do Launcher
 │   ├── test_icons.py       ← unit: decode Morton/RGB565 (com encoder inverso), nomes SMDH
 │   ├── test_store.py       ← unit: staging, backups, prune, histórico
-│   ├── test_sdcard.py      ← unit: descoberta de console/região; extração movable (fixture real)
-│   └── test_integration.py ← integração REAL com save3ds sobre cópia do sandbox + guard do G:
+│   ├── test_sdcard.py      ← unit: console/região; id0 do movable; árvore NAND sintética
+│   ├── test_api_state.py   ← unit: merge launcher/SD no get_state (mock)
+│   ├── test_api_launcher_edit.py ← unit: swaps entre tipos, lifecycle de pastas, inject
+│   └── test_integration.py ← integração REAL (sdext + nandsave) sobre cópias + guard do G:
 ├── tools/save3ds/save3ds_fuse.exe  ← v1.3.0 (wwylele/save3ds), extract/import de extdata
 └── sandbox/                ← NUNCA versionar. Cópia do SD real + chaves do console do dev
     ├── sd/Nintendo 3DS/<id0>/<id1>/extdata/00000000/0000008f/...
@@ -83,7 +90,8 @@ Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups}`.
 ## 4. Como rodar
 
 ```powershell
-# testes (30 no total; integração real é pulada se sandbox/chaves não existirem)
+# testes (89; integração real é pulada sem sandbox/chaves; o guard do SD real
+# re-registra a baseline quando tests/.real_sd_hash não existe)
 python -m pytest tests -q
 
 # UI no navegador com dados reais do sandbox (modo de desenvolvimento padrão)
@@ -91,6 +99,9 @@ python app.py --serve --sd F:\Projects\3DSort\sandbox\sd    # → http://127.0.0
 
 # UI com dados sintéticos (sem SD/chaves — funciona em qualquer máquina)
 python app.py --serve --mock
+
+# como acima, mas sem Launcher.dat (testa a degradação: sistema/pastas read-only)
+python app.py --serve --mock --no-launcher
 
 # janela nativa (pywebview/WebView2)
 python app.py --sd F:\Projects\3DSort\sandbox\sd
@@ -125,10 +136,12 @@ SD:\Nintendo 3DS\<id0 32 hex>\<id1 32 hex>\
   **movable.sed**, único por console, MUDA a cada formato de sistema/transferência).
 - O CTR deriva do caminho do arquivo RELATIVO à raiz id1 — renomear id0/id1 não quebra a
   decriptação (útil para montar sandboxes).
-- **id0 = primeiros 16 bytes de SHA-256(KeyY)** onde KeyY = bytes `0x110:0x120` do
-  movable.sed, formatados como 4 u32 little-endian em hex. O save3ds usa isso para achar a
-  pasta — se o movable for de outro estado do console, dá `NotFound` (pasta não existe
-  para aquele id0) ou `Signature mismatch` (CMAC não bate).
+- **id0 = SHA-256(KeyY)[0:16] lidos como 4 u32 little-endian, cada um em hex** (é o
+  DIGEST que sofre o swap de bytes, não a KeyY), onde KeyY = bytes `0x110:0x120` do
+  movable.sed. Implementado e validado contra o console real em
+  `core/sdcard.py::id0_from_movable`. O save3ds usa isso para achar a pasta — se o
+  movable for de outro estado do console, dá `NotFound` (pasta não existe para aquele
+  id0) ou `Signature mismatch` (CMAC não bate).
 
 ### 5.3 A ARMADILHA da chave velha (custou horas — não repetir)
 
@@ -141,9 +154,8 @@ Backups do GodMode9 podem conter **movable.sed obsoleto**:
   `private/movable.sed` → Copy to `0:/gm9/out`. boot9: GodMode9 → `[M:] MEMORY VIRTUAL` →
   `boot9.bin` (65536 bytes) → Copy.
 - O onboarding do app (Fase 4) deve instruir SEMPRE o dump direto, nunca aproveitar
-  backups antigos. Validar a chave contra o id0 da pasta antes de usar (código do check:
-  derivação em §5.2; há utilitário de verificação nos scripts do scratchpad da sessão de
-  2026-08-14 — vale promover para `core/sdcard.py` na Fase 4).
+  backups antigos. Validar a chave contra o id0 da pasta antes de usar:
+  `core/sdcard.py::id0_from_movable` (promovido do scratchpad em 2026-08-14).
 
 ### 5.4 SaveData.dat (formato v4 — fonte: 3dbrew /wiki/Home_Menu)
 
@@ -153,22 +165,38 @@ Tamanho exato `0x2DA0`. Offsets implementados em `core/savedata.py`:
 |--------|------|----------|
 | 0x0 | u8 | versão (só aceitamos 4) |
 | 0x8 | u64[360] | title IDs dos ícones |
-| 0xB48 | s8[360] | status (1 = ícone ativo) |
+| 0xB48 | s8[360] | flag de embrulho (gift box): **0 = desembrulhado SEMPRE** (mecanismo do "Unwrap all" do Cthulhu, github.com/Ryuzaki-MrL/Cthulhu GPL-3, reimplementado em `set_all_status`); 1 = embrulhável (só embrulha combinado com condição de "novo" do console). NÃO é critério de exibição; nunca filtrar por ele. TODO write zera o array (decisão do usuário 2026-08-15: sem opção, sempre ligado) |
 | 0xCB0 | s16[360] | posição linear no grid |
 | 0xF80 | s8[360] | pasta do ícone (−1 = home grid) |
-| 0x10E8–0x13B8 | ? | NÃO documentado — preservar byte a byte |
-| 0x13B8+ | — | temas/shuffle (não mexemos) |
+| 0x10E8–0x12C8 | ? | NÃO documentado — preservar byte a byte |
+| 0x12C8 | u32[60] | nº de batismo por pasta, fid-indexado (60×4 termina exato em 0x13B8) — provado no gate 0B (2026-08-14): create escreve o próximo nº, rename não toca, delete deixa órfão |
+| 0x13B8+ | — | temas/shuffle (`OFF_THEMES`). O write ENXERTA esta região da versão ATUAL do cartão (`graft_tail`, extract fresco em `write_sd`): tema trocado no console nunca regride, nem via restore |
 
 - **Preservação é a estratégia central**: `SaveData` guarda o buffer inteiro e só reescreve
   os arrays conhecidos. Round-trip byte-idêntico é garantido por construção e testado.
+- **Critério de ativo = tid ∉ {0, 0xFFFF…} e pos ≥ 0, IGUAL ao Launcher** (3dbrew:
+  "equivalent to the same array in Launcher.dat"). Corrigido no gate 0C (2026-08-14):
+  o critério antigo `status == 1` escondia 15 jogos reais do console do dev (9 no home
+  pos 26–34, 6 dentro da pasta Homebrew pos 0–5 — por isso o H&S ficava na pos 6) e
+  causou colisão real: `folder_create` pôs a pasta na pos 26, em cima de jogo oculto;
+  o console exibiu a pasta e RESOLVEU sozinho reescrevendo o SaveData no boot
+  (jogos 26–34 viraram 27–35), sem corromper nada.
+- **Embrulho (gift box) NÃO vive nos arquivos que gerenciamos** (0C: console
+  desembrulhou 5 ícones com SaveData/Cache byte-intocados). Cosmético, some ao abrir
+  o título; não caçar mais. Pós-write o console também pode REORDENAR itens novos
+  dentro de pasta (permuta tid↔slot content-preserving) e ajustar status de slots
+  vazios — diffs assim são normais, tolerar.
 - **O espaço de posições é COMPARTILHADO entre NAND e SD** (confirmado empiricamente:
   no console do dev os jogos SD ocupam 13, 15–25; 0–12 e 14 são apps NAND — pode haver
   app NAND misturado no meio dos jogos). As posições NAND vivem no Launcher.dat (§5.8).
   `apply_order` distribui posições **por contêiner** (home grid e cada pasta), pulando
-  as reservadas: menores posições livres na ordem dada. Reservas = lacunas do próprio
-  arquivo no load ∪ posições do Launcher.dat (apps NAND, tiles de pasta) — a união cobre
-  entidades desconhecidas (ex.: buraco na posição 11 do console do dev, dono não
-  identificado). A antiga densificação 0..n-1 (que colidiria com os NAND) foi removida.
+  as reservadas: menores posições livres na ordem dada. COM launcher, reservas = só as
+  posições do Launcher.dat (apps NAND, tiles de pasta, cart): todo dono é conhecido
+  desde o fix do critério tid+pos (o "buraco da pos 11" era o cart; os demais eram
+  jogos status-0), então buraco = vaga livre real e o write compacta (gate 0C; o
+  console exibe buracos sem drama, mas o usuário quer compactação). SEM launcher,
+  lacunas continuam reservadas (donos invisíveis possíveis). A antiga densificação
+  0..n-1 foi removida; a reserva eterna de buracos com launcher também (2026-08-15).
 - **Posições são LOCAIS ao contêiner** (CONFIRMADO no dump real do Launcher.dat: Health &
   Safety tem pos=6 dentro da pasta 0 enquanto AR Games tem pos=6 no home grid). Item de
   pasta reinicia a contagem na própria pasta.
@@ -209,42 +237,96 @@ save3ds_fuse --sdext <16 dígitos hex, ex 000000000000008f>
   modo recomendado pelo autor para modificar extdata (mount FUSE não existe no Windows).
 - Extdata não suporta resize nativo; save3ds recria arquivos ao redimensionar (lento) e
   **arquivos de tamanho zero quebram no console** — nunca criar.
+- **ARMADILHA do import incompleto (custou o incidente da 0C)**: importar o extdata SEM
+  o diretório `boss/` (mesmo vazio) faz o HOME menu RECONSTRUIR o SaveData.dat no boot:
+  slots reindexados, status = 1 em tudo, ícones SD embrulhados, tema resetado ao
+  default, membros de pasta ejetados ao home, Cache/CacheD regenerados (dados não são
+  perdidos: layout precisa ser rearrumado e tema reativado à mão). Zip de backup
+  descartava diretórios vazios — corrigido em `Backups.create` (entries de diretório)
+  + cinto em `restore_backup` (garante `boss/`). A árvore importada deve SEMPRE
+  espelhar a estrutura completa do extract.
 - Releases: binário Windows só até v1.3.0 (v1.4.0 não tem assets).
 - pyctr complementa: `ExeFSReader` para ler `movable` de essential.exefs; SMDH de títulos
   se um dia o CacheD não bastar.
 
-### 5.7 Limitação de pastas (v1.1 pendente)
+### 5.7 Pastas (v1.1 — implementado, gates de hardware pendentes)
 
 `SaveData.dat` (SD) guarda apenas **a qual pasta cada ícone pertence** (s8). As
-**definições** das pastas — nome, posição, linhas — vivem em `Launcher.dat` dentro de um
-**system save no NAND** (fora do SD; offsets no 3dbrew: posições @0x11DC s16[60],
-linhas @0x1434 u8[60], nomes UTF-16 0x22 @0x1560). Consequência:
-- Mover jogos entre pastas EXISTENTES: funciona só com o SD (implementado).
-- Criar/renomear/reposicionar pastas: exigirá fluxo extra (script GM9 exportando/importando
-  Launcher.dat, ou similar). Investigar na v1.1; a região não documentada do SaveData.dat
-  (§5.4) pode conter espelho parcial — comparar dumps antes/depois de criar pasta no console.
-- Na UI, pastas mostram o nome real quando há Launcher.dat (§5.8); sem ele, "Folder N+1".
-  Criar/renomear/reposicionar pastas continua exigindo ESCRITA do Launcher.dat (v1.1).
+**definições** das pastas — nome, posição, linhas — vivem em `Launcher.dat` (§5.8).
+Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
+- Reordenar/renomear/criar/apagar pastas e mover apps NAND entre contêineres:
+  implementado como mudanças staged (chaves de entidade, §6); a escrita gera payload
+  de injeção + scripts GM9 (§5.8).
+- Nome de pasta: 0x22 bytes UTF-16LE = **16 unidades + NUL garantido** (validado em
+  `Launcher.set_folder_name`). Create usa o menor fid livre (fpos<0 e sem referência
+  ativa em SD/NAND), nome "New folder", rows 2. Delete zera nome, rows=2, fpos=-1 e
+  devolve membros ao home (jogos por rank no fim; NAND com posições explícitas depois).
+- **GATE 0B CUMPRIDO** (2026-08-14, console real, dumps em `sandbox/gate0B/`):
+  - create (console): fpos=35 (fim do grid, NÃO a menor livre), rows=1 (nosso default 2
+    também é aceito — Homebrew usa 2), nome default "２" (nº fullwidth) JÁ gravado no
+    Launcher; SaveData: nº de batismo escrito em `numeros[fid]` (u32 @0x12C8, §5.4);
+    Launcher: contador "próximo nº de pasta" (u32 @0xD80 + byte espelho @0xD85)
+    incrementado.
+  - rename (console): só o campo de nome no Launcher; SaveData byte-idêntico.
+  - delete (console): fpos=−1, nome zerado, rows fica como estava; nº no SaveData fica
+    ÓRFÃO e o contador @0xD80 NÃO decrementa.
+  - Patch de espelhamento IMPLEMENTADO (2026-08-14): `write_sd` escreve o nº de
+    batismo das pastas novas (`SaveData.set_folder_number`, contador lido do Launcher
+    corrente) e `_write_launcher` incrementa o contador
+    (`Launcher.set_next_folder_number`). Delete não limpa nada (igual ao console).
+    Prova final (boot com pasta criada pelo app) fica na Fase 0C.
 
-### 5.8 Launcher.dat (apps NAND — leitura implementada em core/launcher.py)
+### 5.8 Launcher.dat (apps NAND — leitura E escrita em core/launcher.py)
 
 - Local: system save do HOME menu na NAND — `nand:/data/<id0>/sysdata/<ID>/00000000`,
-  ID por região: **JPN `00020082` · USA `0002008F` · EUR `00020098`**. Dump manual via
-  GodMode9: montar esse arquivo (A: → mount) e copiar `/Launcher.dat` para `0:/gm9/out`.
-  O app procura em `sandbox/keys/Launcher.dat` (dev) e `%USERPROFILE%\3DSort\Launcher.dat`.
+  ID por região: **JPN `00020082` · USA `0002008F` · EUR `00020098`** (mapa
+  `NAND_SAVE_IDS` em core/sdcard.py).
+- **Fontes, em ordem de precedência** (`Api._find_container`/`_read_launcher`):
+  1. CONTAINER `homemenu_save.bin` (o arquivo `00000000` inteiro, DISA 64KB) — canal
+     EDITÁVEL. Procurado em `<sd>/3DSort/homemenu_save.bin` (onde o script GM9 de dump
+     deixa), `sandbox/keys/` (dev) e `%USERPROFILE%\3DSort\`. Com escrita pendente, o
+     payload gerado `homemenu_save_new.bin` tem precedência (a verdade do app).
+  2. `Launcher.dat` plano (dump via mount A:) — fallback READ-ONLY (comportamento v1).
+  3. Nada — inferência por lacunas (placeholders "System app").
+- **Canal de escrita (validado no spike 0A de 2026-08-14)**: save3ds
+  `--nandsave <ID8hex> --nand <dir> --boot9 <boot9> --extract|--import` sobre árvore
+  NAND sintética `nand/{private/movable.sed, data/<id0>/sysdata/<id>/00000000}`
+  (`Save3ds.build_nand_tree`). Extract do container real == dump GM9 byte a byte; o
+  save contém APENAS `Launcher.dat`. Patch raw do container é INVIÁVEL (IVFC).
+- **Disciplina da âncora (aprendida a ferro na 0C)**: TODA sessão do HOME drifta bytes
+  voláteis do container, então `homemenu_save.bin.sha` só é confiável vindo do
+  `cp --hash` do `3DSort_dump`. O app NUNCA fabrica essa âncora; escrita de launcher
+  exige o par bin+sha fresco (senão erro pedindo re-dump) e o promote pós-inject
+  DESCARTA as âncoras de propósito. Ciclo de escrita do launcher sempre começa com
+  dump fresco. Restore total pode fazer dump+inject na mesma sessão GM9 (gate 2 vira
+  tautologia, aceitável só porque a intenção é sobrescrever tudo).
+- **Injeção**: o app publica `<sd>/3DSort/homemenu_save_new.bin` + `.sha` + scripts
+  `<sd>/gm9/scripts/3DSort_{dump,inject}.gm9`. O inject tem gates sha duros (payload
+  íntegro; NAND == dump original, aborta se o HOME bootou no meio; cópia bit-perfeita)
+  + `fixcmac` + recibo `inject_done.sha`. O app confirma o recibo no próximo import e
+  promove o payload a dump corrente. **GATE PENDENTE (Fase 0C)**: uma escrita real
+  validada no console (trocar 2 apps NAND, injetar, bootar, fotografar, restaurar).
 - Tamanho: 3dbrew documenta `0x2490`, mas o console real (11.17 USA) produz **`0x2558`**
   — 200 bytes extras no FIM, offsets conhecidos idênticos (validado no dump do dev; o
   parser aceita `>= 0x2490`). Offsets: tids NAND u64[360] @0x8; posições s16[360] @0xD9A
   (locais ao contêiner, ver §5.4); pasta s8[360] @0x106A. Pastas: posições s16[60] @0x11DC
   (−1 = apagada), linhas u8[60] @0x1434, nomes UTF-16LE 0x22 bytes @0x1560.
+- Campos empíricos fora dos arrays (gate 0B, 2026-08-14): u32 @0xD80 + byte espelho
+  @0xD85 = "próximo nº de pasta" (nome default); bytes voláteis @0xB51/@0xB54/@0xB5C
+  (estado de cursor/UI, mudam a cada sessão do HOME) e ~12 bytes de estatísticas na
+  cauda (0x1FA4, 0x2298, …) — o console regenera sozinho; stale pós-inject presumido
+  inofensivo (confirmar na 0C).
 - Validado no dump do dev: critério de ativo = tid ∉ {0, 0xFFFF…} e pos ≥ 0; a lista de
   tids NAND inclui títulos **TWL/DSiWare** (tid high `00048004`, ex. TWiLight Menu++ =
   `0004800453524c41`, gamecode "SRLA" — NÃO é o slot de cartucho); pasta id 0 = "Homebrew"
   @pos 12 com Health & Safety dentro. **Slot do cartucho: u16 @0x2 do Launcher.dat**
   ("cart launcher position"; ≥360 = inválido) — no console do dev vale 11. Reservas sem
   dono restantes viram placeholder "System app" (união de reservas, §5.4).
-- **v1 nunca escreve o Launcher.dat** — apps NAND são exibidos fixos (pinned) na UI;
-  reordená-los exigiria reinjetar o save na NAND (v1.1+, fluxo GM9).
+- **Escrita real na NAND é SEMPRE do usuário** (script GM9 de injeção, com `ask` de
+  consentimento no console) — o app só edita a CÓPIA no SD. Sem container, apps NAND
+  ficam pinned (v1). Buracos abaixo do máximo: com launcher são vagas livres DE
+  VERDADE (sem tile, compactadas no próximo write, 2026-08-15); sem launcher, donos
+  desconhecidos ("System app", reservados para sempre).
 - Sem Launcher.dat o app infere os slots NAND pelas LACUNAS nas posições SD (placeholders
   "System app" sem nome; apps NAND depois do último jogo ficam invisíveis).
 - O Cache/CacheD do SD já contém nome+ícone dos títulos NAND (§5.5) — o Launcher só
@@ -253,26 +335,48 @@ linhas @0x1434 u8[60], nomes UTF-16 0x22 @0x1560). Consequência:
 
 ## 6. Backend (app.py + core/) — contratos
 
-- `Api.get_state()` → `{items: [{slot,pos,tid,folder,name,icon(b64 png)}...] em ordem
-  (pos = posição real POR CONTÊINER, a mesma que write_sd gravará), system:
-  [{tid,pos,folder,pinned,name,icon}...] (apps NAND identificados via Launcher.dat +
-  placeholders "System app" para reservas sem dono), folderNames/folderPos: {id: ...}
-  (do Launcher.dat, vazios sem ele), staged: [rótulos], canUndo, canRedo,
-  sd: {region, root}, history: [backups, mais novo 1º]}`.
-  Toda mutação retorna o estado completo novo (UI re-renderiza inteira — simples e barato
-  para ≤360 itens).
-- Mutações: `move_item(slot, before_slot|null)`, `swap_items(slot_a, slot_b)` (troca
-  exata de posição/pasta entre dois itens — gesto padrão do drag), `set_folder(slot,
-  folder)`, `sort_preset('az'|'za')`, `undo()`, `redo()` — todas **staged** (memória),
-  nada toca o SD.
-- `write_sd()`: exige staged>0 → backup auto → aplica ordem+pastas no SaveData.dat do
-  workdir → `save3ds --import`. `import_sd()`: re-extrai e RESETA o staging.
+- **Chaves de entidade** (posicionais, JSON-simples): `"g:<slot>"` jogo SD, `"n:<slot>"`
+  app NAND, `"f:<id>"` tile de pasta, `"cart"` Game Card. Int puro = `g:<slot>`
+  (retrocompatível). Parse em `Api._key`.
+- `Api.get_state()` → `{items: [{key,slot,pos,tid,folder,name,icon}...],
+  system: [{key,slot,tid,pos,folder,pinned,name,icon,hole?}...] (pinned = launcher
+  read-only; hole=True = vaga livre conhecida "Empty slot"; sem launcher, placeholders
+  "System app"), folderNames/folderPos/folderRows: {fid: ...} (do STAGING),
+  launcherWritable, launcherDirty, pendingInject: {sha,when,changes}|null,
+  staged, canUndo, canRedo, sd, backups_dir, history}`. Toda mutação retorna o estado
+  completo novo (UI re-renderiza inteira).
+- Snapshot do staging: `{order, folders, tids, nand_tids, nand_pos, nand_folder,
+  folder_defs: {fid:{pos,name,rows}}, cart_pos}` — undo/redo/restore cobrem tudo.
+  Jogos NÃO têm posição explícita: `assign_positions` distribui as menores livres por
+  contêiner, pulando `_reserved_now` (posições staged de NAND/pasta/cart; sem
+  launcher, também os buracos sem dono). Invariante do swap exato: sem launcher, todo
+  buraco abaixo do máximo é reservado, logo livre == ocupado pelos jogos; com
+  launcher, livre ⊇ ocupado e o write compacta jogos nas menores vagas (testado em
+  test_api_launcher_edit).
+- Mutações staged: `move_item(slot, before|null)`, `swap_items(a, b)` (QUALQUER par de
+  tipos; pasta/cart só no home), `set_folder(key, folder)` (g/n; NAND ganha posição
+  explícita = menor livre no destino), `folder_create()`, `folder_rename(fid, name)`,
+  `folder_empty(fid)`, `folder_delete(fid)` (membros voltam ao home), `sort_preset`,
+  `undo/redo/reset_staging`. Mutações de launcher exigem `launcherWritable`.
+  Todo `write_sd` zera o array de status (desembrulho sempre ligado, §5.4) e
+  enxerta a região de temas 0x13B8+ da versão atual do cartão (graft, §5.4).
+- `write_sd()` é **all-or-nothing** (SD + launcher do MESMO snapshot): staged>0 →
+  gate de container obsoleto (sha) → gate de dump fresco (par bin+sha do GM9 ao
+  lado do container, §5.8) → backup auto (inclui `__nand__/Launcher.dat` +
+  container) → SaveData → se `launcherDirty`: edita Launcher no container via
+  nandsave, `validate()`, publica payload+scripts no SD, marker `pending_inject.json`
+  no workdir. Falha no ramo launcher NÃO limpa o staging (retry idempotente).
+  `verify_inject()`/`confirm_inject()` fecham o ciclo (recibo do GM9, §5.8).
+  `import_sd()`: checa recibo, re-extrai e RESETA o staging.
 - `Staging` (core/store.py): snapshots imutáveis com deepcopy; `commit` limpa redo;
-  `clear()` após write. `Backups`: zip `.3dsl` + `history.jsonl`, mantém últimos 20.
+  `clear()` após write. `Backups`: zip `.3dsl` + `history.jsonl`, mantém últimos 20;
+  `create(..., extra={arcname: bytes|Path})` guarda arquivos fora da árvore de extdata
+  (prefixo `__nand__/`, removido do extract no restore antes de qualquer import).
 - Erros da API viram `{"error": msg}` (o handler HTTP captura exceções); a UI mostra toast.
 - Mock (`--mock`): `FakeSave3ds` copia árvore plana em vez de decriptar; `make_mock_extdata`
-  gera 12 jogos com SMDH sintético. O mock exercita 100% do código real exceto a crypto —
-  é o modo dos testes de UI que precisam rodar em qualquer máquina.
+  gera 12 jogos com SMDH sintético; o "container" mock é um arquivo cujos bytes SÃO o
+  Launcher.dat (nand_extract/import = cópia). `--no-launcher` testa a degradação.
+  O mock exercita 100% do código real exceto a crypto — é o modo dos testes de UI.
 
 ## 7. Frontend (ui/) — convenções
 
@@ -285,15 +389,18 @@ linhas @0x1434 u8[60], nomes UTF-16 0x22 @0x1560). Consequência:
   fonte Nunito + DotGothic16 para elementos "de console"). Google Fonts é online-only;
   fallback system-ui aceitável offline (empacotar fontes na Fase 4 se importar).
 - Drag-and-drop HTML5 nativo (`draggable`), sem lib, com semântica de **SWAP** (decisão
-  do usuário 2026-08-14, substituiu o reflow-ao-vivo por inserção — que oscilava e
-  cascateava posições): drop sobre jogo = `swap_items` (troca exata, ninguém mais se
-  move; alvo marcado `.swap-with`); drop sobre pasta = `set_folder` (`.drop-into`, anel
-  na cor da pasta); tiles system não são alvo. Nada muda no DOM durante o drag — o
-  commit acontece no drop e a animação FLIP (`captureGrid`/`playFlip`, WAAPI) mostra a
-  troca. Clique simples abre pasta; `#removeZone` na visão de pasta = tirar da pasta;
-  drag cancelado limpa via `render()` no dragend. FLIP roda em todo render do `#grid` —
-  cobre swap/sort/undo/redo. Separadores `.page-sep` mostram as quebras de página do
-  console (mesma paginação do preview).
+  do usuário 2026-08-14): identidade do drag = `P.dragKey` (chave de entidade, §6) lida
+  de `data-ekey` — jogos sempre; apps NAND/pastas/cart só com `launcherWritable`. Drop
+  sobre qualquer tile com ekey = `swap_items` (`.swap-with`); jogo/NAND sobre pasta =
+  `set_folder` (`.drop-into`, anel na cor da pasta) — para trocar COM a pasta,
+  arrasta-se a PASTA sobre o item. Células vazias e holes não são alvo (swap não tem
+  par). Nada muda no DOM durante o drag; commit no drop + animação FLIP
+  (`captureGrid`/`playFlip`, WAAPI) por `data-key` (`s<slot>`/`n<slot>`/`cart`/
+  `f<id>`/`h<pos>`). Clique abre pasta; `#removeZone` = tirar da pasta; drag cancelado
+  limpa via `render()` no dragend. Separadores `.page-sep` = quebras de página do
+  console. Lifecycle de pastas: botão `+ Folder` no grid-head, rename por input
+  (commit em Enter/blur — NUNCA por tecla, o innerHTML rouba o foco), delete com modal
+  de confirmação. SYNC mostra banner de inject pendente com Verify/`Mark as done`.
 - Strings hoje em inglês (como o protótipo); i18n pt-BR/EN é pendência de polish.
 
 ## 8. Testes — estratégia em camadas (manter TODAS)
@@ -329,26 +436,62 @@ passo Playwright se tiver gesto de UI.
 
 ## 10. Estado atual e roadmap
 
-**Feito (2026-08-14)**: spike round-trip OK em dados reais; core completo (41 testes);
+**Feito (2026-08-14, manhã)**: spike round-trip OK em dados reais; core completo;
 UI GRID/SYNC/SETTINGS portada e validada em tela com ícones reais; modo mock; backups +
-restore staged; apps NAND no grid (core/launcher.py, pinned) com Launcher.dat REAL
-dumpado e validado — visão do console reproduzida 1:1 (11 apps identificados, pasta
-"Homebrew", Game Card na pos 14); apply_order por contêiner com reservas (§5.4/§5.8);
-fallback por lacunas sem Launcher.dat. Sandbox re-copiado do SD real.
+restore staged; apps NAND no grid com Launcher.dat REAL dumpado e validado — visão do
+console reproduzida 1:1. Sandbox re-copiado do SD real.
+
+**Feito (2026-08-14, v1.1 — 77 testes)**: escrita do Launcher.dat de ponta a ponta.
+Spike 0A validou o canal save3ds --nandsave (extract == dump GM9 byte a byte).
+`Launcher` com preservação/validate/lifecycle; canal NAND no `Save3ds` + FakeSave3ds;
+modelo unificado de entidades (g:/n:/f:/cart) com reservas dinâmicas e staging
+completo (undo/redo/restore cobrem launcher); swap entre QUAISQUER tipos; pastas
+criar/renomear/esvaziar/apagar; write all-or-nothing com payload de injeção + scripts
+GM9 gerados + recibo verificado; backups incluem launcher/container; UI com drag por
+ekey, lifecycle de pastas, banner de inject no SYNC — tudo validado em tela
+(Playwright, mock) incluindo degradação `--no-launcher`.
+
+**Feito (2026-08-15, gates de hardware no console real)**: além dos gates abaixo, a
+sessão rendeu: critério de ativo corrigido (tid+pos; 15 jogos status-0 invisíveis e
+colisão real de pasta, §5.4); incidente do `boss/` no restore (§5.6) corrigido;
+disciplina da âncora de inject (§5.8: dump fresco obrigatório, promote descarta
+âncoras); buracos livres com launcher (§5.4); desembrulho automático em todo write
+(§5.4, Cthulhu); tema preservado via graft (§5.4). 89 testes.
+
+**GATES DE HARDWARE (CONCLUÍDOS em 2026-08-14/15)**:
+- Fase 0B: FEITA em 2026-08-14 (ver §5.7). Veredito: create/delete SHIPA. Patch de
+  espelhamento (`numeros[fid]` no SaveData @0x12C8 + contador @0xD80/@0xD85 no
+  Launcher) implementado e testado no mesmo dia.
+- Fase 0C: INJEÇÃO VALIDADA em 2026-08-14 (console real, foto conferida): swap de 2
+  apps NAND + pasta criada pelo app (com nº de batismo e contador do gate 0B) chegaram
+  ao HOME exatamente como o modelo previu. Scripts GM9 validados em hardware
+  (dump com `--hash`, inject com os 3 gates, `allow`, `fixcmac`, recibo; `ask` ok).
+  O gate 2 foi validado AO VIVO (abortou corretamente sempre que o HOME bootou entre
+  write e inject; recovery: dump fresco + Import + re-staging). RESTORE validado em
+  hardware (expôs e corrigiu o incidente do `boss/`, §5.6). **GATE 0C FECHADO em
+  2026-08-15**: ciclo final limpo no console (pasta compactada, swap NAND↔jogo dentro
+  de pasta, desembrulho em massa, tema preservado via graft). Resíduo conhecido:
+  1 título ficou embrulhado (condição interna de "novo" do console, fora dos nossos
+  arquivos) — abre-se uma vez e resolve.
 
 **Fase 4 (próxima)**: PyInstaller onefile embutindo `save3ds_fuse.exe` e `ui/`;
 requirements.txt; primeira execução com onboarding guiado (dump boot9/movable com validação
 de id0, escolha do drive); README de distribuição; testar janela pywebview; smoke em
 máquina limpa.
 
-**v1.1**: pastas completas via Launcher.dat (§5.7); validação de posições < 13 (§5.4);
-i18n pt-BR/EN; fontes offline.
+**v1.1 restante (pré-release)**: `cancel_inject` (abandonar payload pendente sem
+limpeza manual); erro de `write_sd` DESTACADO no modal da UI (hoje é toast e passou
+despercebido, custando idas ao console); i18n pt-BR/EN; fontes offline.
 
 **v2**: aba RULES (motor de regras), THEMES/badges.
 
-**Dívidas conscientes**: `spike.py` não usa core/ (era pra ser descartável; ou apagar ou
-refatorar sobre core na Fase 4); comportamento do console diante de buracos deixados ao
-mover jogo para pasta ainda não observado em hardware (write real pendente).
+**Dívidas conscientes**: `spike.py` não usa core/ (era pra ser descartável; apagar ou
+refatorar sobre core na Fase 4). Observações de hardware já incorporadas: console
+exibe buracos sem drama (0B/0C) e o app compacta por decisão de produto quando o
+launcher está presente (§5.4); boot do HOME entre write e inject → gate 2 aborta
+corretamente e o app exige dump fresco antes de escrita de launcher (§5.8); console
+tolera SaveData novo + launcher velho sem corromper; embrulho residual em título
+recém-movido é estado interno do console (abre-se uma vez, §5.4/§10).
 
 ## 11. Regras de trabalho para a IA neste repo
 

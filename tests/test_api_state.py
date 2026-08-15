@@ -1,5 +1,5 @@
 """Estado da Api em modo mock: merge de apps NAND (Launcher.dat) + jogos SD."""
-from app import build_api
+from app import MOCK_CART_POS, build_api
 
 NAND_HOME_POSITIONS = [0, 1, 2, 8]        # apps NAND no home grid do mock
 FOLDER_TILE_POS = 9                       # tile da pasta "Homebrew" no home grid
@@ -12,11 +12,14 @@ def home(system):
 
 def test_state_has_system_items_with_names_and_icons():
     st = build_api(mock=True).get_state()
-    assert [s["pos"] for s in home(st["system"])] == NAND_HOME_POSITIONS
+    assert [s["pos"] for s in home(st["system"])] == NAND_HOME_POSITIONS + [MOCK_CART_POS]
     names = {s["name"] for s in st["system"]}
-    assert "System Settings" in names
-    assert all(s["icon"] for s in st["system"])
-    assert all(s["pinned"] for s in st["system"])
+    assert "System Settings" in names and "Game Card" in names
+    assert all(s["icon"] for s in st["system"] if s["key"] != "cart")
+    # com o container mock presente, o layout do sistema e editavel
+    assert st["launcherWritable"] is True
+    assert not any(s["pinned"] for s in st["system"])
+    assert all(s["key"] == "cart" or s["key"].startswith("n:") for s in st["system"])
 
 
 def test_launcher_folder_exposed_with_nand_member():
@@ -33,13 +36,14 @@ def test_game_items_expose_real_positions():
 
 
 def test_fallback_without_launcher_infers_gaps():
-    api = build_api(mock=True)
-    api.launcher_path = None
+    api = build_api(mock=True, no_launcher=True)
     st = api.get_state()
     # sem Launcher.dat, o tile da pasta tambem vira lacuna anonima
     assert [s["pos"] for s in st["system"]] == NAND_HOME_POSITIONS + [FOLDER_TILE_POS]
     assert all(s["name"] == "System app" for s in st["system"])
     assert all(s["icon"] is None for s in st["system"])
+    assert st["launcherWritable"] is False
+    assert all(s["pinned"] for s in st["system"])
 
 
 def test_write_preserves_position_multiset():

@@ -12,7 +12,10 @@ OFF_TID = 0x8       # u64[360]
 OFF_STATUS = 0xB48  # s8[360], 1 = icone ativo
 OFF_POS = 0xCB0     # s16[360], posicao linear no grid
 OFF_FOLDER = 0xF80  # s8[360], indice da pasta (-1 = home grid)
+OFF_FOLDER_NUM = 0x12C8  # u32[60] fid-indexado: nº de batismo da pasta (gate 0B 2026-08-14)
+OFF_THEMES = 0x13B8      # daqui ao fim: temas/shuffle (nao slot-indexado)
 SLOTS = 360
+EMPTY_TIDS = (0, 0xFFFFFFFFFFFFFFFF)
 
 
 @dataclass
@@ -34,16 +37,33 @@ class SaveData:
     @property
     def entries(self) -> list[Entry]:
         tids = struct.unpack_from(f"<{SLOTS}Q", self._buf, OFF_TID)
-        status = struct.unpack_from(f"<{SLOTS}b", self._buf, OFF_STATUS)
         pos = struct.unpack_from(f"<{SLOTS}h", self._buf, OFF_POS)
         folder = struct.unpack_from(f"<{SLOTS}b", self._buf, OFF_FOLDER)
-        return [Entry(i, tids[i], pos[i], folder[i]) for i in range(SLOTS) if status[i] == 1]
+        # criterio de ativo = tid valido + pos >= 0, igual ao Launcher (3dbrew).
+        # status NAO filtra: jogos nunca abertos tem status 0 e o console os
+        # exibe (gate 0C, console real). O byte e preservado, semantica incerta.
+        return [Entry(i, tids[i], pos[i], folder[i]) for i in range(SLOTS)
+                if tids[i] not in EMPTY_TIDS and pos[i] >= 0]
 
     def set_position(self, slot: int, pos: int):
         struct.pack_into("<h", self._buf, OFF_POS + slot * 2, pos)
 
     def set_folder(self, slot: int, folder: int):
         struct.pack_into("<b", self._buf, OFF_FOLDER + slot, folder)
+
+    def set_folder_number(self, fid: int, n: int):
+        struct.pack_into("<I", self._buf, OFF_FOLDER_NUM + fid * 4, n)
+
+    def set_all_status(self, v: int):
+        # 0 = desembrulhado (mecanismo do Unwrap all do Cthulhu, GPL-3)
+        self._buf[OFF_STATUS:OFF_STATUS + SLOTS] = bytes([v]) * SLOTS
+
+    def graft_tail(self, other: bytes):
+        """Copia a regiao de temas/configs (0x13B8+) de outro SaveData: o write
+        usa a versao ATUAL do cartao para nunca regredir tema trocado no console."""
+        if len(other) != SIZE:
+            raise ValueError(f"graft_tail: esperado {SIZE:#x} bytes, veio {len(other):#x}")
+        self._buf[OFF_THEMES:] = other[OFF_THEMES:]
 
     def apply_order(self, slots_in_order: list[int], reserved: dict | None = None):
         """Reatribui posicoes POR CONTEINER (home grid = -1, cada pasta) na ordem dada.

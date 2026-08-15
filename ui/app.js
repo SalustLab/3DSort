@@ -6,7 +6,7 @@ const P = Object.assign(
   { tab: "GRID", iconSize: "M", viewRows: 4, page: 1, showLabels: true,
     sortMode: "Manual", folderColors: {}, themeId: "cosmos", language: "en-US" },
   JSON.parse(localStorage.getItem("prefs") || "{}"),
-  { openFolder: null, selected: null, sortMenu: false, dragSlot: null }
+  { openFolder: null, selected: null, sortMenu: false, dragKey: null }
 );
 const savePrefs = () => localStorage.setItem("prefs", JSON.stringify({
   tab: P.tab, iconSize: P.iconSize, viewRows: P.viewRows, page: P.page, showLabels: P.showLabels,
@@ -150,17 +150,26 @@ function iconHtml(it, px) {
 
 function tileHtml(it, px) {
   const sel = P.selected === it.slot;
-  return `<div class="item ${sel ? "sel" : ""}" draggable="true" data-slot="${it.slot}" data-key="s${it.slot}">
+  return `<div class="item ${sel ? "sel" : ""}" draggable="true" data-slot="${it.slot}" data-ekey="${it.key}" data-key="s${it.slot}">
     ${iconHtml(it, px)}
     ${P.showLabels ? `<div class="label">${esc(it.name)}</div>` : ""}
   </div>`;
 }
 
 function systemTileHtml(it, px) {
+  if (it.hole)  // vaga livre do grid: o console mostra um espaco vazio aqui
+    return `<div class="item" data-key="h${it.pos}" style="cursor:default" title="Empty slot on the console grid">
+      <div class="icon" style="width:${px}px;height:${px}px;background:none;border:2px dashed var(--line2);opacity:.5"></div>
+    </div>`;
   const icon = it.icon
     ? `<div class="icon" style="width:${px}px;height:${px}px;opacity:.75"><img src="data:image/png;base64,${it.icon}" alt=""></div>`
     : `<div class="icon" style="width:${px}px;height:${px}px;background:none;border:2px dashed var(--line2);color:var(--mut);font-size:${Math.round(px * .4)}px">⚙</div>`;
-  return `<div class="item" data-key="n${it.tid}" style="cursor:default;opacity:.8" title="System app: fixed on the console (lives in NAND)">
+  // chave FLIP: n<slot> / cart para identificados; h<pos> para placeholders (sem colisao)
+  const key = it.key ? it.key.replace(":", "") : `h${it.pos}`;
+  const drag = it.pinned ? "" : ` draggable="true" data-ekey="${it.key}"`;
+  const tip = it.pinned ? "System app: fixed on the console (lives in NAND)"
+    : "System app: drag to move it. Writing needs a GodMode9 inject step";
+  return `<div class="item" data-key="${key}"${drag} style="${it.pinned ? "cursor:default;" : ""}opacity:.8" title="${tip}">
     ${icon}
     ${P.showLabels ? `<div class="label" style="color:var(--mut)">${esc(it.name)}</div>` : ""}
   </div>`;
@@ -168,7 +177,8 @@ function systemTileHtml(it, px) {
 
 function folderTileHtml(id, px) {
   const c = fcolor(id);
-  return `<div class="item" data-folder-tile="${id}" data-key="f${id}">
+  const drag = S.launcherWritable ? ` draggable="true" data-ekey="f:${id}"` : "";
+  return `<div class="item" data-folder-tile="${id}"${drag} data-key="f${id}">
     <div class="folder-tile" style="width:${px}px;height:${px}px;border:2.5px solid ${c}">
       <div class="dot" style="font-size:${Math.round(px * .52)}px;line-height:1;color:${c}">${esc(finitial(id))}</div>
       <div class="badge" style="background:${c}">${folderMembers(id).length}</div>
@@ -197,7 +207,8 @@ function previewCol() {
       const cur = P.openFolder === cell.id;
       cells.push(`<div class="pv-cell dot" style="display:grid;place-items:center;background:linear-gradient(145deg,#fffdf8,#efe6d6);border:${cur ? "2px solid #7ac70c" : `1.5px solid ${fcolor(cell.id)}`};color:${fcolor(cell.id)};font-size:${Math.max(7, Math.round(side * .6))}px;line-height:1">${esc(finitial(cell.id))}</div>`);
     } else if (cell.kind === "system") {
-      if (cell.it.icon) cells.push(`<div class="pv-cell" style="border:1px solid rgba(0,0,0,.15);opacity:.8"><img src="data:image/png;base64,${cell.it.icon}"></div>`);
+      if (cell.it.hole) cells.push(`<div class="pv-cell" style="background:linear-gradient(145deg,rgba(255,255,255,.25),rgba(255,255,255,.1));border:1px dashed rgba(90,77,58,.3)"></div>`);
+      else if (cell.it.icon) cells.push(`<div class="pv-cell" style="border:1px solid rgba(0,0,0,.15);opacity:.8"><img src="data:image/png;base64,${cell.it.icon}"></div>`);
       else cells.push(`<div class="pv-cell" style="border:1px dashed rgba(90,77,58,.4);background:rgba(90,77,58,.15)"></div>`);
     } else {
       const it = cell.it;
@@ -272,8 +283,9 @@ function gridScreen() {
   return previewCol() + `<div class="main-col">
     <div class="grid-head">
       <div style="font-weight:900;font-size:16px">Home grid</div>
-      <div style="font-size:12px;color:var(--mut)">drop onto a game to swap places · onto a folder to move it in · click a folder to open</div>
+      <div style="font-size:12px;color:var(--mut)">drag to swap places · drop a game onto a folder to move it in · click a folder to open</div>
       <div style="flex:1"></div>
+      ${S.launcherWritable ? `<div class="chipbtn" id="newFolderBtn" style="border-width:1.5px;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800">+ Folder</div>` : ""}
       <div class="seg" id="sizeSeg">${sizeBtns}</div>
       <div class="sortchip" id="sortChip">⇅ Sort: ${esc(P.sortMode)} <span style="color:var(--mut)">▾</span>
         ${P.sortMenu ? `<div class="menu" id="sortMenu">
@@ -305,22 +317,24 @@ function folderScreen(px) {
         <div class="dot" style="font-size:38px;line-height:1;color:${c}">${esc(finitial(id))}</div>
       </div>
       <div style="flex:1;display:flex;flex-direction:column;gap:8px">
-        <div style="font-size:17px;font-weight:900">${esc(fname(id))}</div>
+        ${S.launcherWritable
+          ? `<input id="folderNameInput" maxlength="16" value="${esc(fname(id))}" title="Press Enter to rename (staged)" style="font-size:17px;font-weight:900;font-family:inherit;color:var(--ink);background:transparent;border:none;border-bottom:2px dashed var(--line2);padding:2px 0;max-width:260px;outline:none">`
+          : `<div style="font-size:17px;font-weight:900">${esc(fname(id))}</div>`}
         <div style="display:flex;align-items:center;gap:8px">${swatches}</div>
       </div>
     </div>
     <div style="display:flex;align-items:baseline;gap:10px;margin:18px 0 10px">
       <div style="font-weight:800;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:1.2px">In this folder · ${members.length} of 60</div>
-      <div style="font-size:12px;color:#cbb694;font-weight:600">drag games in from the home grid, or out to remove</div>
+      <div style="font-size:12px;color:#cbb694;font-weight:600">drag titles in from the home grid, or out to remove</div>
     </div>
     <div class="grid" id="grid" data-in-folder="${id}" style="grid-template-columns:repeat(8,1fr)">
       ${members.map(m => m.kind === "game" ? tileHtml(m.it, 56) : systemTileHtml(m.it, 56)).join("")}${empties}
     </div>
-    <div class="btn" id="removeZone" style="margin:10px 0">⌂ drop a game here to send it back to the home grid</div>
+    <div class="btn" id="removeZone" style="margin:10px 0">⌂ drop a title here to send it back to the home grid</div>
     <div style="display:flex;gap:10px;padding-top:14px;border-top:1px solid var(--line)">
       <div id="emptyFolderBtn" style="border:2px solid var(--line2);color:var(--mut2);font-weight:800;font-size:12.5px;padding:8px 16px;border-radius:9px;cursor:pointer">Empty folder</div>
       <div id="deleteFolderBtn" style="background:#fde8ec;color:var(--red);font-weight:800;font-size:12.5px;padding:9px 16px;border-radius:9px;cursor:pointer">Delete folder</div>
-      <div style="align-self:center;font-size:11.5px;color:#cbb694;font-weight:600">deleting returns its games to the home grid</div>
+      <div style="align-self:center;font-size:11.5px;color:#cbb694;font-weight:600">deleting returns its titles to the home grid</div>
     </div>
     ${statusBar()}
   </div>`;
@@ -334,8 +348,9 @@ function statusBar() {
     <span class="chipbtn" id="undoBtn">↩ UNDO</span>
     <span class="chipbtn" id="redoBtn">↪ REDO</span>
     <span class="chipbtn" id="resetBtn" title="Discard all staged changes (each recoverable with redo)">✕ RESET</span>
+    ${S.pendingInject ? `<span class="dot" style="color:var(--red);font-size:10px">NAND INJECT PENDING</span>` : ""}
     <span style="flex:1"></span>
-    <span>${S.items.length} TITLES · ${(S.system || []).length} SYSTEM · ${folderIds().length} FOLDERS · v0.1.0</span>
+    <span>${S.items.length} TITLES · ${(S.system || []).filter(s => !s.hole).length} SYSTEM · ${folderIds().length} FOLDERS · v0.1.0</span>
   </div>`;
 }
 
@@ -457,6 +472,21 @@ function syncScreen() {
       </div>
     </div>
     <div style="flex:1;min-width:0;display:flex;flex-direction:column">
+      ${S.pendingInject ? `
+      <div class="card" style="border:2px solid var(--red);margin-bottom:14px;display:flex;flex-direction:column;gap:10px">
+        <div style="font-weight:900;font-size:14px;color:var(--red)">NAND inject pending · ${esc(S.pendingInject.when)}</div>
+        <div style="font-size:12.5px;font-weight:700;color:#7a6a58;line-height:1.6">
+          The system layout was written to the SD card, but the console NAND still has the old one.<br>
+          1. Put the SD card back in the console and boot GodMode9.<br>
+          2. Run the script 3DSort_inject (HOME button, then Scripts...).<br>
+          3. Do NOT boot the HOME menu before the script finishes.<br>
+          4. Put the SD card back in the PC and press Verify.
+        </div>
+        <div style="display:flex;gap:10px">
+          <div class="btn primary" id="verifyInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Verify</div>
+          <div class="btn" id="confirmInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px" title="Skip verification. Only if you are sure the script ran">Mark as done</div>
+        </div>
+      </div>` : ""}
       <div style="font-weight:900;font-size:17px;margin-bottom:4px">History</div>
       <div style="font-size:12.5px;color:var(--mut);font-weight:600;margin-bottom:14px">every import, backup and write. Restore any point</div>
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hist || '<div style="color:var(--mut);font-size:13px">no backups yet</div>'}</div>
@@ -505,9 +535,11 @@ function settingsScreen() {
 
 function writeModal() {
   const list = S.staged.slice(-8).map(s => `<div style="font-size:12.5px;font-weight:700;color:#7a6a58;background:#faecd4;border-radius:8px;padding:7px 12px">${esc(s)}</div>`).join("");
+  const nand = S.launcherDirty ? `<div style="font-size:11.5px;color:var(--red);font-weight:700;background:#fde8ec;border-radius:8px;padding:8px 12px">This includes system layout changes. After writing, run the 3DSort_inject script in GodMode9 BEFORE booting the HOME menu (see the SYNC tab).</div>` : "";
   return `<div class="modal-bg" id="modalBg"><div class="modal">
     <div style="font-weight:900;font-size:16px">Write ${S.staged.length} staged changes to SD?</div>
     <div style="display:flex;flex-direction:column;gap:5px;max-height:180px;overflow:auto">${list}</div>
+    ${nand}
     <div style="font-size:11.5px;color:var(--mut);font-weight:700">A backup will be taken first.</div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <div class="btn" id="cancelWrite" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Cancel</div>
@@ -529,7 +561,8 @@ function bind() {
     $("confirmWrite").onclick = async () => {
       $("modal").innerHTML = "";
       await refresh("write_sd");
-      toast("Written to SD ✓");
+      if (S && S.pendingInject) toast("Written. Now run 3DSort_inject in GodMode9 (SYNC tab)");
+      else toast("Written to SD ✓");
     };
   };
   $("writeBtn").onclick = openWrite;
@@ -560,8 +593,47 @@ function bind() {
   document.querySelectorAll("[data-swatch]").forEach(el => el.onclick = () => {
     P.folderColors[P.openFolder] = el.dataset.swatch; savePrefs(); render();
   });
-  if ($("emptyFolderBtn")) $("emptyFolderBtn").onclick = () => toast("Coming in v2");
-  if ($("deleteFolderBtn")) $("deleteFolderBtn").onclick = () => toast("Coming in v2");
+  const needsDump = () => toast("Needs a system save dump. See the SYNC tab");
+  if ($("newFolderBtn")) $("newFolderBtn").onclick = () =>
+    refresh("folder_create").then(() => toast("Folder created (staged)"));
+  if ($("folderNameInput")) {
+    const inp = $("folderNameInput");
+    inp.onkeydown = e => { if (e.key === "Enter") inp.blur(); };
+    inp.onblur = () => {
+      const name = inp.value.trim();
+      if (name && name !== fname(P.openFolder))
+        refresh("folder_rename", [P.openFolder, name]).then(() => toast("Folder renamed (staged)"));
+      else render();
+    };
+  }
+  if ($("emptyFolderBtn")) $("emptyFolderBtn").onclick = () => {
+    if (!S.launcherWritable) return needsDump();
+    refresh("folder_empty", [P.openFolder]).then(() => toast("Folder emptied (staged)"));
+  };
+  if ($("deleteFolderBtn")) $("deleteFolderBtn").onclick = () => {
+    if (!S.launcherWritable) return needsDump();
+    const id = P.openFolder, n = folderMembers(id).length;
+    $("modal").innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal">
+      <div style="font-weight:900;font-size:16px">Delete folder ${esc(fname(id))}?</div>
+      <div style="font-size:12.5px;color:var(--mut);font-weight:700">Its ${n} title${n === 1 ? "" : "s"} will return to the home grid. The change stays staged until you write.</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <div class="btn" id="cancelDelete" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Cancel</div>
+        <div class="btn primary" id="confirmDelete" style="padding:9px 18px;font-size:12.5px;border-radius:9px">DELETE</div>
+      </div>
+    </div></div>`;
+    $("cancelDelete").onclick = () => ($("modal").innerHTML = "");
+    $("modalBg").onclick = e => { if (e.target.id === "modalBg") $("modal").innerHTML = ""; };
+    $("confirmDelete").onclick = async () => {
+      $("modal").innerHTML = "";
+      P.openFolder = null;
+      await refresh("folder_delete", [id]);
+      toast("Folder deleted (staged)");
+    };
+  };
+  if ($("verifyInjectBtn")) $("verifyInjectBtn").onclick = () =>
+    refresh("verify_inject").then(() => { if (S && !S.pendingInject) toast("Inject confirmed ✓"); });
+  if ($("confirmInjectBtn")) $("confirmInjectBtn").onclick = () =>
+    refresh("confirm_inject").then(() => toast("Marked as done. Re-dump before the next system edit"));
   document.querySelectorAll("[data-restore]").forEach(el => el.onclick = async () => {
     await refresh("restore_backup", [el.dataset.restore]);
     toast("Backup restored (staged state reset)");
@@ -596,22 +668,24 @@ function bind() {
   if ($("labelsToggle")) $("labelsToggle").onclick = () => { P.showLabels = !P.showLabels; savePrefs(); render(); };
   if ($("checkUpdates")) $("checkUpdates").onclick = () => toast("You're on the latest version");
 
-  // grid: selecao, drag com reflow ao vivo, pastas
+  // grid: selecao (jogos), drag por chave de entidade (g:/n:/f:/cart), pastas
   document.querySelectorAll(".item[data-slot]").forEach(el => {
-    const slot = +el.dataset.slot;
-    el.onclick = () => { P.selected = slot; render(); };
+    el.onclick = () => { P.selected = +el.dataset.slot; render(); };
+  });
+  document.querySelectorAll("[data-folder-tile]").forEach(el => {
+    el.onclick = () => { P.openFolder = +el.dataset.folderTile; render(); };
+  });
+  const dragKind = () => P.dragKey === "cart" ? "cart" : P.dragKey.split(":")[0];
+  document.querySelectorAll(".item[data-ekey]").forEach(el => {
     el.ondragstart = e => {
-      P.dragSlot = slot;
+      P.dragKey = el.dataset.ekey;
       e.dataTransfer.effectAllowed = "move";
       setTimeout(() => el.classList.add("dragging")); // apos o browser capturar o ghost
     };
     el.ondragend = () => {
       el.classList.remove("dragging");
-      if (P.dragSlot !== null) { P.dragSlot = null; render(); } // cancelado: restaura ordem de S
+      if (P.dragKey !== null) { P.dragKey = null; render(); } // cancelado: restaura ordem de S
     };
-  });
-  document.querySelectorAll("[data-folder-tile]").forEach(el => {
-    el.onclick = () => { P.openFolder = +el.dataset.folderTile; render(); };
   });
   const grid = document.getElementById("grid");
   if (grid) {
@@ -619,27 +693,28 @@ function bind() {
       x.classList.remove("drop-into", "swap-with"); x.style.outlineColor = "";
     });
     grid.ondragover = e => {
-      if (P.dragSlot === null) return;
+      if (P.dragKey === null) return;
       e.preventDefault();
       clearMarks();
       const t = e.target.closest(".item");
       if (!t || t.classList.contains("dragging")) return;
-      if (t.dataset.folderTile !== undefined) {        // pasta = mover para dentro
-        t.classList.add("drop-into");
+      const k = dragKind();
+      if (t.dataset.folderTile !== undefined && (k === "g" || k === "n")) {
+        t.classList.add("drop-into");                  // titulo sobre pasta = mover para dentro
         t.style.outlineColor = fcolor(+t.dataset.folderTile);
-      } else if (t.dataset.slot !== undefined) {       // jogo = trocar de lugar
+      } else if (t.dataset.ekey !== undefined) {       // qualquer par de tiles = trocar de lugar
         t.classList.add("swap-with");
-      }                                                // system app: alvo invalido
+      }                                                // tile fixo/placeholder: alvo invalido
     };
     grid.ondrop = e => {
       e.preventDefault();
-      if (P.dragSlot === null) return;
-      const slot = P.dragSlot;
-      P.dragSlot = null;
+      if (P.dragKey === null) return;
+      const key = P.dragKey;
+      P.dragKey = null;
       const into = grid.querySelector(".drop-into");
       const swap = grid.querySelector(".swap-with");
-      if (into) refresh("set_folder", [slot, +into.dataset.folderTile]).then(() => toast("Moved into folder (staged)"));
-      else if (swap) refresh("swap_items", [slot, +swap.dataset.slot]);
+      if (into) refresh("set_folder", [key, +into.dataset.folderTile]).then(() => toast("Moved into folder (staged)"));
+      else if (swap) refresh("swap_items", [key, swap.dataset.ekey]);
     };
   }
   const rz = document.getElementById("removeZone");
@@ -648,10 +723,10 @@ function bind() {
     rz.ondragleave = () => rz.classList.remove("dragover");
     rz.ondrop = e => {
       e.preventDefault();
-      if (P.dragSlot === null) return;
-      const slot = P.dragSlot;
-      P.dragSlot = null;
-      refresh("set_folder", [slot, -1]).then(() => toast("Sent back to home grid (staged)"));
+      if (P.dragKey === null) return;
+      const key = P.dragKey;
+      P.dragKey = null;
+      refresh("set_folder", [key, -1]).then(() => toast("Sent back to home grid (staged)"));
     };
   }
 }

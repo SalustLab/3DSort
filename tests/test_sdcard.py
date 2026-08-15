@@ -2,7 +2,8 @@ from pathlib import Path
 
 import pytest
 
-from core.sdcard import find_console, HOME_EXTDATA_IDS, Save3ds
+from core.sdcard import (find_console, HOME_EXTDATA_IDS, NAND_SAVE_IDS,
+                         Save3ds, id0_from_movable)
 
 SANDBOX = Path(__file__).parent.parent / "sandbox"
 
@@ -53,3 +54,35 @@ def test_save3ds_requires_resources(tmp_path):
     s = Save3ds(exe=tmp_path / "nope.exe", boot9=tmp_path / "nope1", movable=tmp_path / "nope2")
     with pytest.raises(FileNotFoundError):
         s.extract("000000000000008f", tmp_path / "sd", tmp_path / "out")
+
+
+# ---- canal NAND (v1.1) ----------------------------------------------------
+
+def test_id0_from_movable_known_vector():
+    # KeyY = 16 bytes zero -> id0 pre-computado (SHA-256[:16] como 4 u32 LE em hex)
+    movable = bytes(0x110) + bytes(16) + bytes(0x20)
+    assert id0_from_movable(movable) == "ff084737d59d71f775c89e9728d26cd5"
+
+
+@pytest.mark.skipif(not (SANDBOX / "keys" / "movable.sed").exists(),
+                    reason="fixture real ausente")
+def test_id0_from_real_movable_matches_console():
+    movable = (SANDBOX / "keys" / "movable.sed").read_bytes()
+    assert id0_from_movable(movable) == "REDACTED-ID0"
+
+
+def test_nand_save_ids_cover_regions():
+    assert set(NAND_SAVE_IDS) == {"JPN", "USA", "EUR"}
+    assert NAND_SAVE_IDS["USA"] == "0002008f"
+
+
+def test_build_nand_tree_layout(tmp_path):
+    movable = tmp_path / "movable.sed"
+    movable.write_bytes(bytes(0x110) + bytes(16) + bytes(0x20))
+    container = tmp_path / "homemenu_save.bin"
+    container.write_bytes(b"DISA-fake")
+    s = Save3ds(exe=tmp_path / "x.exe", boot9=tmp_path / "b9", movable=movable)
+    nand = s.build_nand_tree(tmp_path / "work", container, "0002008f")
+    assert (nand / "private" / "movable.sed").read_bytes() == movable.read_bytes()
+    save = nand / "data" / "ff084737d59d71f775c89e9728d26cd5" / "sysdata" / "0002008f" / "00000000"
+    assert save.read_bytes() == b"DISA-fake"
