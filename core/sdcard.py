@@ -1,10 +1,18 @@
 """3DS SD card discovery and save3ds_fuse wrapper (extdata extract/import)."""
+import getpass
 import hashlib
 import shutil
 import struct
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+SAVE3DS_NAME = "save3ds_fuse.exe" if sys.platform == "win32" else "save3ds_fuse"
+# Keeps the save3ds child process from flashing a console window in a windowed build.
+# creationflags only exists on Windows, so the kwargs are empty elsewhere.
+_RUN_KW = ({"creationflags": subprocess.CREATE_NO_WINDOW}
+           if sys.platform == "win32" else {})
 
 HOME_EXTDATA_IDS = {"00000082": "JPN", "0000008f": "USA", "00000098": "EUR"}
 # HOME menu system save on the NAND (Launcher.dat lives inside it), per region
@@ -54,10 +62,29 @@ def find_console(sd_root: Path) -> Console:
     raise FileNotFoundError(f"HOME menu extdata not found in {n3ds}")
 
 
+def default_sd_candidates(bases=None) -> list[Path]:
+    """Places an SD card can be mounted: drive letters D..P on Windows, or the
+    subdirectories of the usual removable mount points on Linux/macOS."""
+    if sys.platform == "win32":
+        return [Path(f"{letter}:/") for letter in "DEFGHIJKLMNOP"]
+    if bases is None:
+        user = getpass.getuser()
+        bases = [Path("/media") / user, Path("/media"), Path("/run/media") / user,
+                 Path("/mnt"), Path("/Volumes")]
+    out = []
+    for base in bases:
+        try:
+            out.extend(sorted(p for p in Path(base).iterdir() if p.is_dir()))
+        except OSError:
+            continue
+    return out
+
+
 def list_3ds_roots(candidates=None) -> list[Path]:
-    """Candidates (default: drives D..P) that contain a 'Nintendo 3DS' folder."""
+    """Candidates that contain a 'Nintendo 3DS' folder (default: see
+    default_sd_candidates)."""
     if candidates is None:
-        candidates = [Path(f"{letter}:/") for letter in "DEFGHIJKLMNOP"]
+        candidates = default_sd_candidates()
     out = []
     for root in candidates:
         try:
@@ -96,7 +123,7 @@ class Save3ds:
         cmd = [str(self.exe), "--sdext", extdata_id, "--sd", str(sd_root),
                "--boot9", str(self.boot9), "--movable", str(self.movable),
                mode, str(target)]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, **_RUN_KW)
         if r.returncode != 0:
             raise RuntimeError(f"save3ds {mode} failed: {r.stderr or r.stdout}")
 
@@ -127,7 +154,7 @@ class Save3ds:
         target.mkdir(parents=True, exist_ok=True)
         cmd = [str(self.exe), "--nandsave", save_id, "--nand", str(nand_root),
                "--boot9", str(self.boot9), mode, str(target)]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, **_RUN_KW)
         if r.returncode != 0:
             raise RuntimeError(f"save3ds nandsave {mode} failed: {r.stderr or r.stdout}")
 

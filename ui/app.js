@@ -7,16 +7,22 @@ const P = Object.assign(
     sortMode: "Manual", themeId: "cosmos" },
   JSON.parse(localStorage.getItem("prefs") || "{}"),
   { openFolder: null, selected: null, sortMenu: false, dragKey: null,
-    driveMenu: false, drives: null }
+    driveMenu: false, drives: null, guidePage: 1 }
 );
 const savePrefs = () => localStorage.setItem("prefs", JSON.stringify({
   tab: P.tab, iconSize: P.iconSize, viewRows: P.viewRows, page: P.page, showLabels: P.showLabels,
   sortMode: P.sortMode, themeId: P.themeId }));
 
+// raw result, {error} included: for callers that show the message themselves
+async function callRaw(name, args = []) {
+  if (window.pywebview && window.pywebview.api) {
+    try { return await window.pywebview.api[name](...args); }
+    catch (e) { return { error: String((e && e.message) || e) }; }
+  }
+  return await (await fetch("/api/" + name, { method: "POST", body: JSON.stringify({ args }) })).json();
+}
 async function call(name, args = []) {
-  let r;
-  if (window.pywebview && window.pywebview.api) r = await window.pywebview.api[name](...args);
-  else r = await (await fetch("/api/" + name, { method: "POST", body: JSON.stringify({ args }) })).json();
+  const r = await callRaw(name, args);
   if (r && r.error) { toast(r.error); return null; }
   return r;
 }
@@ -125,13 +131,14 @@ function render() {
   else if (P.tab === "RULES") el.innerHTML = rulesScreen();
   else if (P.tab === "THEMES") el.innerHTML = themesScreen();
   else if (P.tab === "SYNC") el.innerHTML = syncScreen();
+  else if (P.tab === "INSTRUCTIONS") el.innerHTML = instructionsScreen();
   else el.innerHTML = settingsScreen();
   bind();
   playFlip(before);
 }
 
 function renderTop() {
-  document.getElementById("tabs").innerHTML = ["GRID", "SYNC"].map(t =>
+  document.getElementById("tabs").innerHTML = ["GRID", "SYNC", "INSTRUCTIONS"].map(t =>
     `<div class="tab ${P.tab === t ? "on" : ""}" data-tab="${t}">${t}</div>`).join("");
   const n = S.staged.length;
   document.getElementById("writeBtn").textContent = n ? `WRITE (${n}) ▸` : "WRITE ▸";
@@ -349,7 +356,7 @@ function statusBar() {
     <span class="chipbtn" id="resetBtn" title="Discard all staged changes (each recoverable with redo)">✕ RESET</span>
     ${S.pendingInject ? `<span class="dot" style="color:var(--red);font-size:10px">NAND INJECT PENDING</span>` : ""}
     <span style="flex:1"></span>
-    <span>${S.items.length} TITLES · ${(S.system || []).filter(s => !s.hole).length} SYSTEM · ${folderIds().length} FOLDERS · v0.1.0</span>
+    <span>${S.items.length} TITLES · ${(S.system || []).filter(s => !s.hole).length} SYSTEM · ${folderIds().length} FOLDERS · ${VERSION}</span>
   </div>`;
 }
 
@@ -479,17 +486,60 @@ function syncScreen() {
           1. Put the SD card back in the console and boot GodMode9.<br>
           2. Run the script 3DSort_inject (HOME button, then Scripts...).<br>
           3. Do NOT boot the HOME menu before the script finishes.<br>
-          4. Put the SD card back in the PC and press Verify.
+          4. Put the SD card back in the PC and press ${esc(BTN_VERIFY_INJECT)}.
         </div>
         <div style="display:flex;gap:10px">
-          <div class="btn primary" id="verifyInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Verify</div>
+          <div class="btn primary" id="verifyInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px">${esc(BTN_VERIFY_INJECT)}</div>
           <div class="btn" id="confirmInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px" title="Skip verification. Only if you are sure the script ran">Mark as done</div>
+          <div class="btn" id="cancelInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px;margin-left:auto" title="Discard the pending system changes">Cancel inject</div>
         </div>
       </div>` : ""}
       <div style="font-weight:900;font-size:17px;margin-bottom:4px">History</div>
       <div style="font-size:12.5px;color:var(--mut);font-weight:600;margin-bottom:14px">every import, backup and write. Restore any point</div>
       <div style="display:flex;flex-direction:column;gap:8px;overflow:auto">${hist || '<div style="color:var(--mut);font-size:13px">no backups yet</div>'}</div>
     </div>
+  </div>`;
+}
+
+// ---- guidance content (single source) ---------------------------------------
+// Button labels live here because instruction text refers to them by name. A
+// literal in prose plus a different literal on the button is how the wizard grew
+// a "press Verify below" under a button that said DONE.
+const VERSION = "v1.1.0";
+
+const BTN_IMPORT = "Import layout from SD";
+const BTN_VERIFY_INJECT = "Verify";
+const BTN_WIZ_VERIFY = "I RAN IT, VERIFY";
+
+const GM9_ENTER = "Power the console off. Hold START while turning it on. That boots GodMode9 instead of the HOME menu.";
+const GM9_RUN_SCRIPT = "In GodMode9, press the HOME button, choose Scripts..., pick the script and follow the prompts on screen.";
+const GM9_DUMP_WHAT = "3DSort_dump copies the HOME menu system save, movable.sed and boot9.bin to the 3DSort folder on the SD card. Those are what this app reads. Run it before the first import, and again before every system layout edit.";
+
+// The INSTRUCTIONS tab and the setup guide render THIS array, so the two can
+// never drift apart.
+const INSTRUCTION_PAGES = [
+  { title: "What you need",
+    body: "A 3DS with custom firmware (Luma3DS) and GodMode9 installed, plus the console's SD card in this PC. This app does not install custom firmware. If your console does not have it yet, follow the 3ds.hacks.guide site first." },
+  { title: "Entering GodMode9", body: GM9_ENTER },
+  { title: "Running a script", body: GM9_RUN_SCRIPT },
+  { title: "The dump script (3DSort_dump)",
+    body: GM9_DUMP_WHAT + `<br><br>The app writes this script to the SD card by itself, in gm9/scripts. You never copy a file by hand. After it runs, put the card back in the PC and press ${BTN_IMPORT} on the SYNC tab.` },
+  { title: "The inject script (3DSort_inject)",
+    body: "Moving system apps, folders or the Game Card tile changes the console NAND, which this app never touches directly. Writing publishes a payload to the SD card and the SYNC tab shows a pending banner. Run 3DSort_inject in GodMode9 to apply it.<br><br>The script checks three things before writing: the payload is intact, the console NAND still matches the dump, and the copy is bit perfect. If any check fails the script aborts and nothing is written.<br><br>Do not boot the HOME menu between writing on the PC and running the inject. Booting it changes the NAND and the second check aborts on purpose." },
+  { title: "If something goes wrong",
+    body: `<b>movable.sed does not match this SD card</b>: the keys are from an older console state. Run 3DSort_dump again, then press ${BTN_IMPORT} on the SYNC tab.<br><br><b>The inject aborted</b>: nothing was harmed. Run 3DSort_dump again, press ${BTN_IMPORT} on the SYNC tab, redo the system changes (or restore the auto backup from the SYNC tab) and write again.<br><br><b>A title still looks gift wrapped</b>: that is console side state. Open it once and it goes away.` },
+];
+
+const insCard = (title, body) => `<div class="card" style="display:flex;flex-direction:column;gap:7px">
+  <div style="font-weight:900;font-size:14px">${title}</div>
+  <div style="font-size:12.5px;font-weight:700;color:#7a6a58;line-height:1.6">${body}</div>
+</div>`;
+
+function instructionsScreen() {
+  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:20px 26px;gap:10px;max-width:760px;overflow:auto">
+    <div style="font-weight:900;font-size:17px">Instructions</div>
+    <div style="font-size:12.5px;color:var(--mut);font-weight:600;margin-bottom:6px">how to get the console data in and out. Keep this tab for reference</div>
+    ${INSTRUCTION_PAGES.map(p => insCard(p.title, p.body)).join("")}
   </div>`;
 }
 
@@ -520,8 +570,12 @@ function settingsScreen() {
       <div><div style="font-weight:800;font-size:13.5px">Icon labels in the grid</div><div style="font-size:11.5px;color:var(--mut);font-weight:700">show titles under every icon</div></div>
       <div class="toggle ${P.showLabels ? "on" : ""}" id="labelsToggle"><div></div></div>
     </div>
+    <div class="card setrow">
+      <div><div style="font-weight:800;font-size:13.5px">Setup guide</div><div style="font-size:11.5px;color:var(--mut);font-weight:700">how to dump the console data, step by step</div></div>
+      <div class="chipbtn" id="setupGuideBtn" style="border-width:1.5px;border-radius:8px;padding:6px 14px;font-size:12.5px;font-weight:800">Open…</div>
+    </div>
     <div class="dot" style="margin-top:auto;display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--mut);padding-top:12px;border-top:1px solid var(--line)">
-      <span>3DSORT v0.1.0</span>
+      <span>3DSORT ${VERSION}</span>
       <span class="chipbtn" id="checkUpdates" style="padding:5px 10px;background:var(--card)">CHECK FOR UPDATES</span>
     </div>
   </div>`;
@@ -535,11 +589,36 @@ function writeModal() {
     <div style="display:flex;flex-direction:column;gap:5px;max-height:180px;overflow:auto">${list}</div>
     ${nand}
     <div style="font-size:11.5px;color:var(--mut);font-weight:700">A backup will be taken first.</div>
+    <div id="writeError" style="display:none"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <div class="btn" id="cancelWrite" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Cancel</div>
       <div class="btn primary" id="confirmWrite" style="padding:9px 18px;font-size:12.5px;border-radius:9px">WRITE ▸</div>
     </div>
   </div></div>`;
+}
+
+// Blocking: the console must not boot the HOME menu before the inject runs,
+// or gate 2 of the GM9 script aborts and a fresh dump is needed.
+function postWriteWarning() {
+  const $ = id => document.getElementById(id);
+  $("modal").innerHTML = `<div class="modal-bg"><div class="modal">
+    <div style="font-weight:900;font-size:16px;color:var(--red)">Do not boot the HOME menu yet</div>
+    <div style="font-size:12.5px;color:#7a6a58;font-weight:700;line-height:1.5">The SD card is written, but the system layout still has to be injected into the console NAND.</div>
+    <div style="font-size:12.5px;font-weight:800;background:#faecd4;border-radius:8px;padding:10px 12px;line-height:1.6">
+      1. Put the SD card back in the console.<br>
+      2. ${esc(GM9_ENTER)}<br>
+      3. ${esc(GM9_RUN_SCRIPT)} Choose 3DSort_inject.<br>
+      4. Back here, press ${esc(BTN_VERIFY_INJECT)} on the SYNC tab.
+    </div>
+    <div style="font-size:11.5px;color:var(--red);font-weight:700">If the HOME menu boots first, the inject aborts on its safety gate and you will need a fresh 3DSort_dump.</div>
+    <div style="display:flex;justify-content:flex-end">
+      <div class="btn primary" id="pwOk" style="padding:9px 18px;font-size:12.5px;border-radius:9px">I UNDERSTAND</div>
+    </div>
+  </div></div>`;
+  $("pwOk").onclick = () => {
+    $("modal").innerHTML = "";
+    P.tab = "SYNC"; P.openFolder = null; savePrefs(); render();
+  };
 }
 
 // ---- events -------------------------------------------------------------------
@@ -553,9 +632,19 @@ function bind() {
     $("cancelWrite").onclick = () => ($("modal").innerHTML = "");
     $("modalBg").onclick = e => { if (e.target.id === "modalBg") $("modal").innerHTML = ""; };
     $("confirmWrite").onclick = async () => {
+      $("confirmWrite").textContent = "WRITING…";
+      const r = await callRaw("write_sd");
+      if (r && r.error) {   // stays on screen: a toast here already cost console trips
+        const e = $("writeError");
+        e.style.display = "block";
+        e.innerHTML = `<div style="font-size:12.5px;font-weight:800;color:var(--red);background:#fde8ec;border:1.5px solid var(--red);border-radius:8px;padding:10px 12px;line-height:1.5">Write failed: ${esc(r.error)}</div>`;
+        $("confirmWrite").textContent = "RETRY ▸";
+        return;
+      }
+      S = r;
       $("modal").innerHTML = "";
-      await refresh("write_sd");
-      if (S && S.pendingInject) toast("Written. Now run 3DSort_inject in GodMode9 (SYNC tab)");
+      render();
+      if (S.pendingInject) postWriteWarning();
       else toast("Written to SD ✓");
     };
   };
@@ -645,6 +734,24 @@ function bind() {
     refresh("verify_inject").then(() => { if (S && !S.pendingInject) toast("Inject confirmed ✓"); });
   if ($("confirmInjectBtn")) $("confirmInjectBtn").onclick = () =>
     refresh("confirm_inject").then(() => toast("Marked as done. Re-dump before the next system edit"));
+  if ($("cancelInjectBtn")) $("cancelInjectBtn").onclick = () => {
+    $("modal").innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal">
+      <div style="font-weight:900;font-size:16px">Cancel the pending inject?</div>
+      <div style="font-size:12.5px;color:var(--mut);font-weight:700;line-height:1.5">The system changes published to the SD card will be discarded. Game layout changes already written stay in place. You will need a fresh 3DSort_dump before the next system edit.</div>
+      <div style="font-size:12.5px;color:var(--red);font-weight:700">If you already ran 3DSort_inject on the console, press ${esc(BTN_VERIFY_INJECT)} instead.</div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <div class="btn" id="keepInject" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Keep it</div>
+        <div class="btn primary" id="doCancelInject" style="padding:9px 18px;font-size:12.5px;border-radius:9px">CANCEL INJECT</div>
+      </div>
+    </div></div>`;
+    $("keepInject").onclick = () => ($("modal").innerHTML = "");
+    $("modalBg").onclick = e => { if (e.target.id === "modalBg") $("modal").innerHTML = ""; };
+    $("doCancelInject").onclick = async () => {
+      $("modal").innerHTML = "";
+      await refresh("cancel_inject");
+      toast("Inject cancelled. System changes discarded");
+    };
+  };
   document.querySelectorAll("[data-restore]").forEach(el => el.onclick = async () => {
     await refresh("restore_backup", [el.dataset.restore]);
     toast("Backup restored (staged state reset)");
@@ -669,6 +776,7 @@ function bind() {
   });
 
   // SETTINGS
+  if ($("setupGuideBtn")) $("setupGuideBtn").onclick = () => renderGuide(1);
   if ($("sdDriveChip")) $("sdDriveChip").onclick = async e => {
     const root = e.target.dataset && e.target.dataset.drive;
     if (root) {
@@ -756,13 +864,151 @@ function bind() {
   }
 }
 
-// ---- boot -------------------------------------------------------------------
-async function boot() {
-  if (window.pywebview === undefined || window.pywebview.api) {
-    S = await call("get_state");
-    if (S) render();
-  } else {
-    window.addEventListener("pywebviewready", boot, { once: true });
+// ---- setup screens ----------------------------------------------------------
+// Two separate render paths on purpose. renderWizard DOES the setup and only
+// exists when the app cannot open; renderGuide READS the same material and has
+// no action buttons at all. They used to be one function with `review ? a : b`
+// scattered through labels, body and handlers, which is how instruction text
+// ended up naming a button the other mode had renamed.
+// Both run with S === null possible, so renderTop/bind must not be called.
+function wizChrome(on, label) {
+  document.getElementById("writeBtn").style.display = on ? "none" : "";
+  document.getElementById("gearBtn").style.display = on ? "none" : "";
+  if (on) {
+    document.getElementById("tabs").innerHTML = `<div class="tab on">${esc(label)}</div>`;
+    document.getElementById("sdinfo").textContent = label;
   }
+}
+
+function wizCard(title, sub, body, buttons) {
+  return `<div style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:26px;overflow:auto">
+    <div class="card" style="max-width:560px;display:flex;flex-direction:column;gap:12px">
+      <div style="font-weight:900;font-size:18px">${title}</div>
+      <div style="font-size:12.5px;color:var(--mut);font-weight:700;line-height:1.5">${sub}</div>
+      ${body}
+      <div style="display:flex;gap:10px;justify-content:flex-end;align-items:center">${buttons}</div>
+    </div>
+  </div>`;
+}
+
+const wizDetail = d => d
+  ? `<div style="font-size:11px;color:var(--mut);font-weight:700;line-height:1.45;border-top:1px solid var(--line);padding-top:9px">${esc(d)}</div>`
+  : "";
+const wizSteps = body => `<div style="font-size:12.5px;font-weight:800;background:#faecd4;border-radius:8px;padding:11px 13px;line-height:1.7">${body}</div>`;
+const guideLink = '<div class="chipbtn" id="wizGuide" style="margin-right:auto;padding:6px 12px;font-size:12px;font-weight:800">Read the guide</div>';
+
+// ---- the guide: reading only, no backend, no actions ------------------------
+function renderGuide(page) {
+  const $ = id => document.getElementById(id);
+  const total = INSTRUCTION_PAGES.length;
+  P.guidePage = Math.min(Math.max(page, 1), total);
+  const p = INSTRUCTION_PAGES[P.guidePage - 1];
+  wizChrome(true, "SETUP GUIDE");
+  const dim = n => n ? "" : "opacity:.4;pointer-events:none;";
+  $("screen").innerHTML = `<div style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:26px;overflow:auto">
+    <div class="card" style="max-width:600px;width:100%;display:flex;flex-direction:column;gap:12px">
+      <div style="font-size:11.5px;font-weight:800;color:var(--red)">${P.guidePage} OF ${total}</div>
+      <div style="font-weight:900;font-size:18px">${esc(p.title)}</div>
+      <div style="font-size:12.5px;font-weight:700;color:#7a6a58;line-height:1.6;min-height:150px">${p.body}</div>
+      <div style="display:flex;gap:10px;align-items:center;border-top:1px solid var(--line);padding-top:12px">
+        <div class="chipbtn" id="guidePrev" style="padding:7px 14px;font-size:12.5px;font-weight:800;${dim(P.guidePage > 1)}">‹ Back</div>
+        <div class="chipbtn" id="guideNext" style="padding:7px 14px;font-size:12.5px;font-weight:800;${dim(P.guidePage < total)}">Next ›</div>
+        <div class="btn primary" id="guideClose" style="margin-left:auto;padding:8px 18px;font-size:12.5px;border-radius:9px">CLOSE</div>
+      </div>
+    </div>
+  </div>`;
+  $("guidePrev").onclick = () => renderGuide(P.guidePage - 1);
+  $("guideNext").onclick = () => renderGuide(P.guidePage + 1);
+  $("guideClose").onclick = () => {
+    P.guidePage = 1;
+    if (S) { wizChrome(false); render(); }   // came from the app
+    else wizAdvance();                       // came from the wizard: re-check
+  };
+}
+
+// ---- the wizard: doing the setup, one screen per stage ----------------------
+// Only ever shown when the app cannot open. No modes: the stage picks the
+// screen, and each screen owns its own buttons.
+async function renderWizard(stage, detail) {
+  const $ = id => document.getElementById(id);
+  wizChrome(true, "FIRST-RUN SETUP");
+
+  if (stage === "no_keys" || stage === "stale_keys") {
+    const stale = stage === "stale_keys"
+      ? `<div style="font-size:12px;color:var(--red);font-weight:800;background:#fde8ec;border-radius:8px;padding:9px 12px;line-height:1.5">The keys on the card are from an older console state, so they cannot read it. Run 3DSort_dump again to replace them.</div>` : "";
+    $("screen").innerHTML = wizCard("Dump your console data",
+      "3DSort needs the console's own keys and HOME menu save. A GodMode9 script does that for you, and it is already on the SD card.",
+      `${stale}${wizSteps(`1. Put the SD card back in the console.<br>
+        2. ${esc(GM9_ENTER)}<br>
+        3. ${esc(GM9_RUN_SCRIPT)} Choose 3DSort_dump.<br>
+        4. Put the SD card back in this PC and press ${esc(BTN_WIZ_VERIFY)} below.`)}
+       <div style="font-size:11.5px;color:var(--mut);font-weight:700;line-height:1.5">${esc(GM9_DUMP_WHAT)}</div>
+       ${wizDetail(detail)}`,
+      `${guideLink}<div class="btn primary" id="wizVerify" style="padding:9px 18px;font-size:12.5px;border-radius:9px">${esc(BTN_WIZ_VERIFY)}</div>`);
+    $("wizVerify").onclick = () => wizAdvance();
+
+  } else if (stage === "error") {
+    $("screen").innerHTML = wizCard("3DSort could not read the SD card",
+      "The card was found, but something failed while reading it. This is not a normal setup step.",
+      `${wizDetail(detail) || '<div style="font-size:12px;color:var(--mut);font-weight:700">No further detail was reported.</div>'}
+       <div style="font-size:12px;color:var(--mut);font-weight:700;line-height:1.5">Check that the card is fully inserted and try again. If it keeps failing, run 3DSort_dump on the console to refresh the console data.</div>`,
+      `${guideLink}<div class="btn primary" id="wizRetry" style="padding:9px 18px;font-size:12.5px;border-radius:9px">TRY AGAIN</div>`);
+    $("wizRetry").onclick = () => wizAdvance();
+
+  } else {   // no_sd, and anything unrecognised: ask for the card
+    const r = await callRaw("list_drives");
+    const drives = (r && r.drives) || [];
+    const list = drives.map(d => `<div class="chipbtn" data-wizdrive="${esc(d.root)}" style="border-width:1.5px;border-radius:8px;padding:9px 14px;font-size:13px;font-weight:800">${esc(d.root)}</div>`).join("")
+      || `<div style="font-size:12.5px;color:var(--mut);font-weight:700;line-height:1.5">No SD card with a Nintendo 3DS folder was found. Insert the card, then press Rescan.</div>`;
+    $("screen").innerHTML = wizCard("Welcome to 3DSort",
+      "Rearrange your console's HOME menu from the PC. First, point the app at your console's SD card.",
+      `<div style="display:flex;flex-direction:column;gap:8px">${list}</div>
+       <div style="font-size:11.5px;color:var(--mut);font-weight:700;line-height:1.5">Your console needs custom firmware (Luma3DS) with GodMode9 installed. 3DSort does not install it.</div>
+       ${wizDetail(detail)}`,
+      `${guideLink}<div class="chipbtn" id="wizRescan" style="padding:8px 14px;font-size:12.5px;font-weight:800">Rescan</div>`);
+    document.querySelectorAll("[data-wizdrive]").forEach(el => el.onclick = async () => {
+      // set_sd_root returns the FULL state on success (app.py), so use it
+      // instead of asking again. On failure, move to the screen for whatever is
+      // missing: an error here used to strand the user on this screen, with the
+      // screen that explains the fix one step away.
+      const res = await callRaw("set_sd_root", [el.dataset.wizdrive]);
+      if (res && !res.error) { S = res; wizChrome(false); return render(); }
+      wizAdvance();
+    });
+    $("wizRescan").onclick = () => wizAdvance();
+  }
+  const g = $("wizGuide");
+  if (g) g.onclick = () => renderGuide(1);
+}
+
+async function wizAdvance() {
+  const setup = await callRaw("get_setup_state") || { stage: "error", detail: "backend unreachable" };
+  if (setup.stage === "ready") return enterApp();
+  renderWizard(setup.stage, setup.detail);
+}
+
+// ---- boot -------------------------------------------------------------------
+async function enterApp() {
+  S = await call("get_state");
+  if (!S) return;
+  wizChrome(false);
+  render();
+}
+
+async function boot() {
+  // In the native window app.js runs BEFORE pywebview injects window.pywebview,
+  // and the page is served by pywebview's own HTTP server, which has no /api
+  // route: falling through to fetch there gets a 405 and the app renders
+  // nothing. window.pywebview may still be undefined at this point and the user
+  // agent is plain Edge, so neither tells us where we are. What does: --serve
+  // sets this flag in the HTML it generates. Everything else waits for the
+  // pywebview bridge.
+  if (!window.SERVE_MODE && !(window.pywebview && window.pywebview.api)) {
+    window.addEventListener("pywebviewready", boot, { once: true });
+    return;
+  }
+  const forced = new URLSearchParams(location.search).get("wizard"); // UI-test hook
+  if (forced) return renderWizard(forced, "(forced for UI tests)");
+  wizAdvance();
 }
 boot();

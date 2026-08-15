@@ -1,9 +1,11 @@
+import sys
 from pathlib import Path
 
 import pytest
 
-from core.sdcard import (find_console, HOME_EXTDATA_IDS, NAND_SAVE_IDS,
-                         Save3ds, id0_from_movable, list_3ds_roots)
+import core.sdcard
+from core.sdcard import (default_sd_candidates, find_console, HOME_EXTDATA_IDS,
+                        NAND_SAVE_IDS, Save3ds, id0_from_movable, list_3ds_roots)
 
 SANDBOX = Path(__file__).parent.parent / "sandbox"
 
@@ -47,6 +49,31 @@ def test_list_3ds_roots_filters_candidates(tmp_path):
     assert roots == [a]
 
 
+def test_default_candidates_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    roots = default_sd_candidates()
+    assert len(roots) == 13
+    assert roots[0] == Path("D:/") and roots[-1] == Path("P:/")
+
+
+def test_default_candidates_linux(tmp_path, monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    base = tmp_path / "media_user"
+    (base / "sd1").mkdir(parents=True)
+    (base / "sd2").mkdir()
+    (base / "not-a-dir").write_bytes(b"x")
+    roots = default_sd_candidates([base, tmp_path / "missing"])
+    assert roots == [base / "sd1", base / "sd2"]  # file skipped, missing base ignored
+
+
+def test_list_3ds_roots_uses_default_candidates(tmp_path, monkeypatch):
+    mount = tmp_path / "mount"
+    (mount / "Nintendo 3DS").mkdir(parents=True)
+    monkeypatch.setattr(core.sdcard, "default_sd_candidates",
+                        lambda: [mount, tmp_path / "other"])
+    assert list_3ds_roots() == [mount]
+
+
 def test_home_extdata_ids_cover_regions():
     assert set(HOME_EXTDATA_IDS.values()) == {"JPN", "USA", "EUR"}
 
@@ -76,8 +103,13 @@ def test_id0_from_movable_known_vector():
 @pytest.mark.skipif(not (SANDBOX / "keys" / "movable.sed").exists(),
                     reason="real fixture missing")
 def test_id0_from_real_movable_matches_console():
+    """The derived id0 must name the actual folder on the card. The expected
+    value is read from the sandbox rather than hardcoded: it identifies the
+    developer's console and this repo is public."""
     movable = (SANDBOX / "keys" / "movable.sed").read_bytes()
-    assert id0_from_movable(movable) == "REDACTED-ID0"
+    id0_dirs = [p.name for p in (SANDBOX / "sd" / "Nintendo 3DS").iterdir()
+                if p.is_dir() and len(p.name) == 32]
+    assert id0_from_movable(movable) in id0_dirs
 
 
 def test_nand_save_ids_cover_regions():

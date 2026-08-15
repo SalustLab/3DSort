@@ -343,6 +343,46 @@ def test_write_launcher_dirty_publishes_payload_and_verifies():
     assert (sd3 / "homemenu_save.bin").exists() and not payload.exists()
 
 
+def test_cancel_inject_clears_pending_and_payload():
+    """Cancel discards the published payload and the inject script. The mock
+    container lives in tmp, so the 'forces a fresh dump' part (deleting
+    homemenu_save.bin.sha) is only observable in the real flow."""
+    api = build_api(mock=True)
+    api.get_state()
+    api.swap_items(SETTINGS, FOLDER)
+    api.write_sd()
+    sd3 = Path(api.sd_root) / "3DSort"
+    scripts = Path(api.sd_root) / "gm9" / "scripts"
+    assert (sd3 / "homemenu_save_new.bin").exists()
+    st = api.cancel_inject()
+    assert "error" not in st and "items" in st  # full state
+    assert st["pendingInject"] is None and st["staged"] == []
+    assert not (sd3 / "homemenu_save_new.bin").exists()
+    assert not (sd3 / "homemenu_save_new.bin.sha").exists()
+    assert not (scripts / "3DSort_inject.gm9").exists()
+    assert not api._pending_path().exists()
+    assert (scripts / "3DSort_dump.gm9").exists()  # dump script stays: needed next
+
+
+def test_cancel_inject_without_pending_errors():
+    api = build_api(mock=True)
+    api.get_state()
+    assert "error" in api.cancel_inject()
+
+
+def test_write_still_works_after_cancel_inject():
+    api = build_api(mock=True)
+    api.get_state()
+    api.swap_items(SETTINGS, FOLDER)
+    api.write_sd()
+    api.cancel_inject()
+    st = api.get_state()
+    a, b = st["items"][0]["slot"], st["items"][1]["slot"]
+    api.swap_items(a, b)
+    st = api.write_sd()
+    assert "error" not in st and st["staged"] == []
+
+
 def test_stale_container_blocks_launcher_write():
     api = build_api(mock=True)
     api.get_state()

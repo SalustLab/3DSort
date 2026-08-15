@@ -1,11 +1,31 @@
+<div align="center">
+
+<img src="docs/images/logo.png" alt="3DSort" width="120">
+
 # 3DSort
 
-Rearrange your Nintendo 3DS HOME menu from your PC.
+**Rearrange your Nintendo 3DS HOME menu from your PC.**
+
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
+[![Tests](https://img.shields.io/badge/tests-140%20passing-7ac70c?style=flat-square)](#tests)
+[![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
+[![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
+[![Version](https://img.shields.io/badge/version-v1.1.0-d31e40?style=flat-square)](#status)
+
+</div>
 
 Organizing icons on the console itself is slow: one stylus drag at a time, page
 by page. 3DSort edits the layout directly on the SD card instead. Put the card
 in your computer, drag things around in a desktop app, check the live preview,
 then write the result back and boot the console.
+
+![The GRID tab: live console preview on the left, drag-and-drop grid on the right](docs/images/grid.png)
+
+> [!IMPORTANT]
+> Every write takes an automatic backup first, and nothing touches the card
+> until you confirm. When you move system apps or folders, do not boot the HOME
+> menu between writing on the PC and running the inject script on the console.
 
 ## What it does
 
@@ -13,7 +33,7 @@ then write the result back and boot the console.
   folder tiles, even the Game Card slot
 - Move games and system apps in and out of folders
 - Create, rename, empty and delete folders
-- Sort presets (A to Z, Z to A)
+- Sort presets (A to Z, Z to A, release date oldest or newest first)
 - Live preview that reproduces the console screen exactly, for every view
   setting from 1x60 to 6x10
 - Every change is staged in memory first, with undo, redo and reset. Nothing
@@ -23,6 +43,10 @@ then write the result back and boot the console.
 - Every write also unwraps gift-boxed icons in bulk (same mechanism as
   Cthulhu's "Unwrap all") and preserves the HOME menu theme you picked on the
   console, even when restoring an old backup
+
+## Writing and backups
+
+![The SYNC tab: SD card status, import and backup buttons, restorable history](docs/images/sync.png)
 
 Moving system apps and folders needs one extra step, because their layout
 lives in a NAND system save rather than on the card: dump it once with the
@@ -40,25 +64,86 @@ nothing is lost.
 ## What you need
 
 - A 3DS with custom firmware (Luma3DS) and GodMode9
-- The console's `boot9.bin` and `movable.sed`, dumped with GodMode9
-- A Windows PC with an SD card reader
-- Python 3.10, for now. A standalone exe is planned.
+- A PC with an SD card reader. On Windows also the WebView2 runtime, which
+  ships with Windows 10 and 11 by default
+- The console's `boot9.bin` and `movable.sed`. You do not copy these by hand:
+  the app writes a `3DSort_dump` script to the card and that script dumps them
+  for you, along with the HOME menu save
 
-One warning about keys: dump `movable.sed` fresh from SYSNAND CTRNAND with
-GodMode9. Do not reuse one from an old NAND backup. If the console was
-formatted or system-transferred since that backup, the old key will not
-decrypt the current card, and the error messages are not obvious about why.
+<div align="center">
+<img src="docs/images/wizard.png" alt="First-run setup: the app walks you through dumping the console data" width="720">
+</div>
+
+The first run walks you through it: pick the SD card, run `3DSort_dump` on the
+console, press verify. Settings has a "Setup guide" entry that reopens the same
+walkthrough at any time, and the INSTRUCTIONS tab keeps the whole procedure for
+reference.
+
+![The INSTRUCTIONS tab: entering GodMode9, running the scripts, troubleshooting](docs/images/instructions.png)
+
+One warning about keys: always let `3DSort_dump` take `movable.sed` fresh from
+the console. Do not reuse one from an old NAND backup. If the console was
+formatted or system-transferred since that backup, the old key will not decrypt
+the current card. The app checks for this and says so, rather than failing with
+a cryptic error.
 
 ## Running from source
 
 ```
-pip install pyctr Pillow pywebview pytest
+pip install -r requirements-dev.txt
 
 python app.py                 # native window, real SD card
 python app.py --serve         # same app in the browser at http://127.0.0.1:8347
 python app.py --serve --mock  # synthetic data, no SD or keys needed
-python -m pytest tests -q     # test suite
 ```
+
+### Tests
+
+```
+python -m pytest tests -q     # 140 tests
+```
+
+The suite runs on any machine. Tests that need real console keys skip
+themselves automatically, and a guard test fails if anything ever writes to a
+real SD card.
+
+## Building the portable exe (Windows)
+
+```
+pip install -r requirements-dev.txt
+pyinstaller 3DSort.spec
+dist\3DSort.exe --selftest    # verifies the bundled resources, exit code 0
+```
+
+The result is a single portable `dist\3DSort.exe` with no installer. The UI,
+the fonts, the icon and the save3ds binary are bundled, so the app needs no
+network access at runtime. The icon itself is generated: run
+`python tools/make_icon.py` to redraw `ui/3dsort.ico` after changing it.
+
+## Linux (run from source)
+
+The app itself is portable. Two things need attention:
+
+```
+pip install -r requirements.txt
+pip install pywebview[gtk]     # or pywebview[qt]
+```
+
+pywebview needs an explicit GUI backend on Linux. For GTK on Debian or Ubuntu:
+`sudo apt install python3-gi python3-gi-cairo gir1.2-gtk-3.0 gir1.2-webkit2-4.1`.
+The folder picker falls back to tkinter in `--serve` mode only, which needs the
+distro's `python3-tk` package.
+
+The save3ds binary is Windows-only in the upstream releases, so build it once:
+
+```
+git clone https://github.com/wwylele/save3ds
+cd save3ds/save3ds_fuse && cargo build --release --no-default-features
+cp target/release/save3ds_fuse <3DSort>/tools/save3ds/save3ds_fuse
+```
+
+SD card auto-detection looks under `/media/<user>`, `/run/media/<user>`, `/mnt`
+and `/Volumes`. Any other mount point can be picked in Settings.
 
 ## How it works
 
@@ -78,12 +163,20 @@ original container stays on the card for recovery.
 
 ## Status
 
-In development. The core is covered by tests, including round trips against a
-copy of a real card, and the full cycle (write, NAND inject, restore) has been
-validated end to end on real hardware. The app never writes without an
-automatic backup and an explicit confirmation. Still, it has only been
-exercised on one console so far, so treat it as beta and keep your own
-backups. A standalone exe with guided onboarding is the next milestone.
+Beta. The core is covered by 140 tests, including round trips against a copy of
+a real card, and the full cycle (write, NAND inject, restore) has been validated
+end to end on real hardware. The app never writes without an automatic backup
+and an explicit confirmation. Still, it has only been exercised on one console
+so far, so keep your own backups.
+
+Screenshots on this page use the app's synthetic demo data, not a real console
+library.
+
+## License
+
+[GPL-3.0](LICENSE). The bulk unwrap mechanism was reimplemented from
+[Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu), which is GPL-3.0, so 3DSort
+carries the same license.
 
 ## Credits
 
