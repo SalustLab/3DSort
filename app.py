@@ -5,6 +5,7 @@ Usage:
   python app.py --serve [port]  UI + API at http://127.0.0.1:port (dev/tests)
   python app.py --mock          synthetic data (no SD/boot9) — combinable with --serve
   python app.py --sd PATH       use this path as the SD root (e.g. the sandbox)
+  python app.py --selftest      checks bundled resources, exits 0 when all present
 """
 import copy
 import hashlib
@@ -19,8 +20,8 @@ from core.icons import (cache_index, icon_png_b64, smdh_entry, smdh_short_name,
                         twl_icon_png_b64, twl_short_name)
 from core.launcher import Launcher, parse as parse_launcher
 from core.savedata import SaveData, assign_positions
-from core.sdcard import (NAND_SAVE_IDS, Save3ds, find_console, find_sd_drive,
-                         id0_from_movable, list_3ds_roots)
+from core.sdcard import (NAND_SAVE_IDS, SAVE3DS_NAME, Save3ds, find_console,
+                         find_sd_drive, id0_from_movable, list_3ds_roots)
 from core.store import Backups, Staging
 from core import titledates
 
@@ -265,6 +266,29 @@ class Api:
             "backups_dir": str(self.backups.root),
             "history": self.backups.history()[::-1],
         }
+
+    def get_setup_state(self):
+        """Why the grid is not available yet, for the first-run wizard.
+        Stages: ready | no_sd | no_keys | stale_keys | error."""
+        if self.staging is not None:
+            return {"stage": "ready", "detail": None}
+        try:
+            r = self.get_state()
+        except Exception as e:   # find_console raises straight through on js_api
+            r = {"error": str(e)}
+        if "error" not in r:
+            return {"stage": "ready", "detail": None}
+        msg = r["error"]
+        # order matters: the keys message also contains "not found"
+        if "Console keys not found" in msg:
+            stage = "no_keys"
+        elif "does not match this SD" in msg:
+            stage = "stale_keys"
+        elif "not found" in msg:
+            stage = "no_sd"
+        else:
+            stage = "error"
+        return {"stage": stage, "detail": msg}
 
     def _sd_info(self):
         info = {"region": self.console.region if self.console else None,
@@ -747,6 +771,24 @@ class Api:
         self._pending_path().unlink(missing_ok=True)
         return self.import_sd()
 
+    def cancel_inject(self):
+        """Abandons a pending inject: removes the published payload, the inject
+        script and the marker. The SD layout already written stays (the console
+        tolerates a new SaveData with the old launcher). The dump anchor goes too,
+        so the next launcher write demands a fresh 3DSort_dump."""
+        if self._pending_inject_info() is None:
+            return {"error": "No pending inject to cancel."}
+        if self.sd_root is not None:
+            sd3 = Path(self.sd_root) / "3DSort"
+            for name in ("homemenu_save_new.bin", "homemenu_save_new.bin.sha",
+                         "homemenu_save.bin.sha", "inject_done.sha"):
+                (sd3 / name).unlink(missing_ok=True)
+            (Path(self.sd_root) / "gm9" / "scripts" /
+             "3DSort_inject.gm9").unlink(missing_ok=True)
+        # Marker last: _find_container prefers the payload while it exists.
+        self._pending_path().unlink(missing_ok=True)
+        return self.import_sd()
+
     # ---- settings (SD drive and backups folder) ---------------------------
     def _save_settings(self):
         """Persists the user's choices next to the workdir
@@ -760,7 +802,7 @@ class Api:
     def list_drives(self):
         roots = [str(p) for p in list_3ds_roots()]
         cur = str(self.sd_root) if self.sd_root else None
-        if cur and cur not in roots:  # e.g. sandbox outside the D..P scan
+        if cur and cur not in roots:  # e.g. sandbox outside the default scan
             roots.insert(0, cur)
         return {"drives": [{"root": r, "current": r == cur} for r in roots]}
 
@@ -774,7 +816,7 @@ class Api:
         return self.import_sd()  # re-derives console, keys, container, receipt
 
     def pick_backups_dir(self):
-        """Opens the native Windows folder picker and applies the choice.
+        """Opens the native folder picker and applies the choice.
         Cancelled = state unchanged."""
         path = pick_folder_native(str(self.backups.root))
         if not path:
@@ -1047,7 +1089,7 @@ def build_api(mock: bool, sd_root: Path | None = None,
         cands = (sandbox_keys / name, APP_DIR / name)
         return next((p for p in cands if p.exists()), cands[0])
     return Api(
-        Save3ds(ROOT / "tools" / "save3ds" / "save3ds_fuse.exe",
+        Save3ds(ROOT / "tools" / "save3ds" / SAVE3DS_NAME,
                 key("boot9.bin"), key("movable.sed")),
         sd_root, workdir, Backups(backups_root), launcher=launcher,
         container=container)
@@ -1059,6 +1101,22 @@ def serve(api: Api, port: int):
     class H(http.server.SimpleHTTPRequestHandler):
         def __init__(self, *a, **kw):
             super().__init__(*a, directory=str(UI), **kw)
+
+        def do_GET(self):
+            """Serves index.html with the SERVE_MODE flag injected. The UI needs
+            it to pick a channel: in the native window it must wait for the
+            pywebview bridge instead of falling through to fetch (pywebview's own
+            HTTP server has no /api route and answers 405)."""
+            if self.path.split("?")[0] not in ("/", "/index.html"):
+                return super().do_GET()
+            html = (UI / "index.html").read_text(encoding="utf-8").replace(
+                "<head>", "<head>\n<script>window.SERVE_MODE=true</script>", 1)
+            data = html.encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
 
         def do_POST(self):
             name = self.path.removeprefix("/api/")
@@ -1082,8 +1140,24 @@ def serve(api: Api, port: int):
     http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 
 
+def selftest() -> int:
+    """Checks the bundled resources are reachable. Used to smoke-test the frozen
+    exe, where a missing data file would otherwise degrade silently (a missing
+    titledates table just turns date sorting into a no-op)."""
+    checks = {
+        "ui/index.html": (UI / "index.html").is_file(),
+        f"tools/save3ds/{SAVE3DS_NAME}": (ROOT / "tools" / "save3ds" / SAVE3DS_NAME).is_file(),
+        "core/titledates.json.gz": len(titledates._load()) > 0,
+    }
+    for name, ok in checks.items():
+        print(f"{'ok  ' if ok else 'FAIL'} {name}")
+    return 0 if all(checks.values()) else 1
+
+
 def main():
     args = sys.argv[1:]
+    if "--selftest" in args:
+        sys.exit(selftest())
     sd = Path(args[args.index("--sd") + 1]) if "--sd" in args else None
     api = build_api(mock="--mock" in args, sd_root=sd,
                     no_launcher="--no-launcher" in args)

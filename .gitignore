@@ -18,6 +18,10 @@ tools/save3ds.zip
 # Estado de runtime do guard do SD real (baseline por maquina)
 tests/.real_sd_hash
 
+# Saida do PyInstaller (o exe portatil e gerado, nao versionado)
+build/
+dist/
+
 # Caches
 __pycache__/
 *.pyc

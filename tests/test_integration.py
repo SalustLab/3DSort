@@ -7,15 +7,15 @@ from pathlib import Path
 import pytest
 
 from core.savedata import SaveData
-from core.sdcard import Save3ds, find_console
+from core.sdcard import SAVE3DS_NAME, Save3ds, find_console
 
 ROOT = Path(__file__).parent.parent
 KEYS = ROOT / "sandbox" / "keys"
 SD_SRC = ROOT / "sandbox" / "sd"
+SAVE3DS = ROOT / "tools" / "save3ds" / SAVE3DS_NAME
 
 ready = all(p.exists() for p in
-            [KEYS / "boot9.bin", KEYS / "movable.sed", SD_SRC,
-             ROOT / "tools" / "save3ds" / "save3ds_fuse.exe"])
+            [KEYS / "boot9.bin", KEYS / "movable.sed", SD_SRC, SAVE3DS])
 pytestmark = pytest.mark.skipif(not ready, reason="sandbox/real keys missing")
 
 
@@ -29,8 +29,7 @@ def sd(tmp_path):
 
 @pytest.fixture()
 def s3():
-    return Save3ds(ROOT / "tools" / "save3ds" / "save3ds_fuse.exe",
-                   KEYS / "boot9.bin", KEYS / "movable.sed")
+    return Save3ds(SAVE3DS, KEYS / "boot9.bin", KEYS / "movable.sed")
 
 
 def test_extract_reads_real_layout(sd, s3, tmp_path):

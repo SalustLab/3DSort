@@ -1,0 +1,3 @@
+pywebview>=6.2
+Pillow>=12
+pyctr>=0.7

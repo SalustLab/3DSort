@@ -1,8 +1,9 @@
 # CLAUDE.md — 3DSort
 
 Contexto estático para desenvolvimento assistido por IA. Leia antes de qualquer mudança.
-Última revisão: 2026-08-15 (v1.1 completo: gates de hardware 0B/0C VALIDADOS no console
-real, ver §10; próxima etapa é a Fase 4, empacotamento).
+Última revisão: 2026-08-15 (Fase 4 FEITA: exe PyInstaller com selftest, onboarding
+guiado, aba INSTRUCTIONS, cancel_inject, fontes offline, código pronto para Linux;
+gates de hardware 0B/0C validados no console real, ver §10).
 
 ## 1. O que é o projeto
 
@@ -11,13 +12,15 @@ Nintendo 3DS editando o SD card do console montado no PC: reordenar ícones por
 drag-and-drop, mover jogos entre pastas, presets de ordenação, preview ao vivo de como
 ficará no console, escrita staged com backup automático e histórico restaurável.
 
-- **Público**: comunidade 3DS (consoles com CFW — Luma3DS + GodMode9). Será distribuído
-  como **exe portátil sem instalador** (PyInstaller onefile).
+- **Público**: comunidade 3DS (consoles com CFW — Luma3DS + GodMode9). Distribuído
+  como **exe portátil sem instalador** (PyInstaller onefile, `3DSort.spec`, §10).
+  Windows-first no empacotamento; o código roda no Linux a partir do fonte
+  (detecção de mount + nome do binário são platform-aware, §10/README).
 - **Protótipo visual de referência**: `prototype/3DSort Prototype.dc.html` (com
   `prototype/support.js`, que é apenas o runtime do mockup — ignorar como código de
   produção). A UI real em `ui/` porta esse visual; em dúvida de UX/estética, consultar o
   protótipo.
-- **Escopo v1**: abas GRID, SYNC e SETTINGS; ícones reais dos jogos (requisito firme do
+- **Escopo v1**: abas GRID, SYNC, INSTRUCTIONS e SETTINGS; ícones reais dos jogos (requisito firme do
   usuário); staging/undo/redo; backups. Abas RULES (auto-sort por regras) e THEMES/badges
   ficaram para v2. v1.1 (implementado e validado em hardware, §10): reordenar apps
   NAND/pastas/Game Card e criar/renomear/apagar pastas via escrita do Launcher.dat com
@@ -42,8 +45,14 @@ ficará no console, escrita staged com backup automático e histórico restaurá
 ```
 F:\Projects\3DSort\
 ├── CLAUDE.md               ← este arquivo
+├── 3DSort.spec             ← build PyInstaller onefile/windowed (Fase 4)
+├── LICENSE                 ← GPL-3.0 (mesma do Cthulhu, de onde veio o desembrulho §5.4)
+├── requirements.txt        ← runtime (pywebview, Pillow, pyctr)
+├── requirements-dev.txt    ← -r requirements.txt + pytest + pyinstaller
+├── docs/images/            ← screenshots do README (capturadas em --mock: SEM dados
+│                             do console real; `/*.png` do .gitignore é ancorado na raiz)
 ├── prototype/              ← mockup visual de referência (não é código de produção)
-├── app.py                  ← Api (camada única UI↔core), FakeSave3ds/mock, --serve, main
+├── app.py                  ← Api (camada única UI↔core), FakeSave3ds/mock, --serve, --selftest, main
 ├── spike.py                ← prova de viabilidade da Fase 1 (histórico; já cumpriu o papel)
 ├── conftest.py             ← vazio; existe só para o pytest achar core/ no sys.path
 ├── core/
@@ -56,7 +65,9 @@ F:\Projects\3DSort\
 │   └── titledates.json.gz  ← tabela gerada por tools/build_titledates.py (COMMITADA; ~16KB)
 ├── ui/
 │   ├── index.html          ← tela única, CSS fiel ao protótipo (paleta creme/DotGothic16)
-│   └── app.js              ← JS puro; render por innerHTML + bind(); estado P (prefs) + S (backend)
+│   ├── app.js              ← JS puro; render por innerHTML + bind(); estado P (prefs) + S (backend)
+│   ├── fonts/              ← Nunito (variável) + DotGothic16 woff2 latin, servidas offline
+│   └── 3dsort.ico          ← ícone do exe e favicon (gerado por tools/make_icon.py)
 ├── tests/
 │   ├── test_savedata.py    ← unit: round-trip binário, invariantes
 │   ├── test_launcher.py    ← unit: parse + round-trip/diff-locality/lifecycle do Launcher
@@ -66,9 +77,13 @@ F:\Projects\3DSort\
 │   ├── test_api_state.py   ← unit: merge launcher/SD no get_state (mock)
 │   ├── test_api_launcher_edit.py ← unit: swaps entre tipos, lifecycle de pastas, inject
 │   ├── test_titledates.py  ← unit: tabela de datas + presets de sort por data
+│   ├── test_api_setup.py   ← unit: get_setup_state (estágios do wizard de onboarding)
+│   ├── test_packaging.py   ← unit: --selftest, datas do .spec, ícone, fontes vendorizadas
+│   ├── test_ui_boot.py     ← unit: escolha de canal no boot (armadilha do 405, §7)
 │   └── test_integration.py ← integração REAL (sdext + nandsave) sobre cópias + guard do G:
 ├── tools/save3ds/save3ds_fuse.exe  ← v1.3.0 (wwylele/save3ds), extract/import de extdata
 ├── tools/build_titledates.py ← gera core/titledates.json.gz (3dsdb + GameTDB; precisa internet)
+├── tools/make_icon.py      ← gera ui/3dsort.ico (Pillow; cartao SD + grid, 16..256px)
 └── sandbox/                ← NUNCA versionar. Cópia do SD real + chaves do console do dev
     ├── sd/Nintendo 3DS/<id0>/<id1>/extdata/00000000/0000008f/...
     └── keys/{boot9.bin, movable.sed, essential.exefs}
@@ -96,7 +111,7 @@ Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups,settings.
 ## 4. Como rodar
 
 ```powershell
-# testes (113; integração real é pulada sem sandbox/chaves; o guard do SD real
+# testes (128; integração real é pulada sem sandbox/chaves; o guard do SD real
 # re-registra a baseline quando tests/.real_sd_hash não existe)
 python -m pytest tests -q
 
@@ -114,10 +129,17 @@ python app.py --sd F:\Projects\3DSort\sandbox\sd
 
 # spike histórico da Fase 1 (round-trip completo no sandbox)
 python spike.py
+
+# build do exe portátil + smoke dos recursos embutidos
+pyinstaller 3DSort.spec
+dist\3DSort.exe --selftest      # exit 0 = ui/, save3ds e titledates achados no bundle
 ```
 
-Dependências: Python 3.10 (pyenv-win), `pyctr`, `Pillow`, `pytest`, `pywebview`.
-Sem requirements.txt ainda — criar na Fase 4 junto do empacotamento.
+Dependências: Python 3.10 (pyenv-win). `requirements.txt` = runtime
+(pywebview, Pillow, pyctr); `requirements-dev.txt` acrescenta pytest e
+pyinstaller. Linux: precisa de backend explícito do pywebview
+(`pip install pywebview[gtk]` ou `[qt]`) e do save3ds_fuse compilado
+(cargo) — ver README.
 
 ## 5. Conhecimento de domínio 3DS (caro de redescobrir — confie nisto)
 
@@ -389,6 +411,20 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   no workdir. Falha no ramo launcher NÃO limpa o staging (retry idempotente).
   `verify_inject()`/`confirm_inject()` fecham o ciclo (recibo do GM9, §5.8).
   `import_sd()`: checa recibo, re-extrai e RESETA o staging.
+  `cancel_inject()` (2026-08-15): abandona payload pendente. Exige marker
+  (senão `{"error"}`); apaga do SD `3DSort/{homemenu_save_new.bin,.bin.sha,
+  homemenu_save.bin.sha,inject_done.sha}` + `gm9/scripts/3DSort_inject.gm9`,
+  o marker POR ÚLTIMO (`_find_container` prefere o payload enquanto ele
+  existe); PRESERVA `homemenu_save.bin` (verdade estrutural de leitura) e o
+  SaveData já escrito (console tolera SaveData novo + launcher velho, §10).
+  Apagar a âncora é de propósito: força dump fresco antes da próxima escrita
+  de launcher (§5.8). Retorna `import_sd()`.
+- `get_setup_state()` (2026-08-15): `{stage, detail}` para o wizard de
+  onboarding. `ready` (staging existe = atalho, ou get_state OK) | `no_keys` |
+  `stale_keys` | `no_sd` | `error`. Classifica por substring das NOSSAS
+  mensagens de erro, server-side; ordem importa (a msg de chaves contém "not
+  found"). Envolve `get_state` em try/except porque `find_console` levanta
+  direto no canal js_api. Mock sempre resolve `ready`.
 - Settings (2026-08-15): `list_drives()` → `{drives: [{root, current}]}` (varredura
   D..P por `Nintendo 3DS/` + sd_root atual); `set_sd_root(path)` valida, re-importa
   (staging resetado — mesma carta em letra nova é o caso comum, pending inject é
@@ -414,11 +450,26 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
 - **JS puro, sem framework, sem build step.** Render = template strings + `innerHTML` +
   `bind()` re-liga handlers após cada render. Estado: `S` (espelho do backend) e `P`
   (prefs locais: tab, iconSize, viewRows, page, showLabels → localStorage).
+- **ARMADILHA DO CANAL NO BOOT (custou uma tela em branco no exe, 2026-08-15)**:
+  na janela nativa o `app.js` roda ANTES de o pywebview injetar
+  `window.pywebview`, e a página é servida pelo servidor Bottle DO PRÓPRIO
+  pywebview, que NÃO tem rota `/api/` (responde **405**). Ou seja: qualquer
+  boot que caia no fallback `fetch` renderiza NADA, sem erro visível. Testar
+  `window.pywebview !== undefined` não basta (ainda é undefined) e o user agent
+  é Edge puro, sem "pywebview". A distinção correta é a flag `window.SERVE_MODE`,
+  injetada pelo `do_GET` do `--serve` no `index.html` (o arquivo em disco fica
+  limpo); sem ela, o boot ESPERA o evento `pywebviewready`. Guardado por
+  `tests/test_ui_boot.py`. `--serve` sozinho NUNCA pega esse bug: lá o `/api/`
+  existe de verdade.
 - `call(name, args[])` roteia pywebview vs fetch automaticamente — **argumentos sempre
-  posicionais** para manter os dois canais idênticos.
+  posicionais** para manter os dois canais idênticos. `callRaw(name, args[])`
+  devolve o resultado CRU (inclui `{error}`, rejeição do js_api virada em
+  `{error}`); `call` é o wrapper que faz toast e retorna null. Use `callRaw`
+  onde a mensagem precisa ficar na tela (modal de write, wizard).
 - Visual: seguir o protótipo (fundo `#fdf5e8`, cartões `#fffdf8`, vermelho `#d31e40`,
-  fonte Nunito + DotGothic16 para elementos "de console"). Google Fonts é online-only;
-  fallback system-ui aceitável offline (empacotar fontes na Fase 4 se importar).
+  fonte Nunito + DotGothic16 para elementos "de console"). Fontes VENDORIZADAS
+  em `ui/fonts/` (woff2 latin, @font-face no index.html; Nunito é variável, um
+  arquivo cobre 200..1000) — nada de CDN, o exe portátil renderiza igual offline.
 - Drag-and-drop HTML5 nativo (`draggable`), sem lib, com semântica de **SWAP** (decisão
   do usuário 2026-08-14): identidade do drag = `P.dragKey` (chave de entidade, §6) lida
   de `data-ekey` — jogos sempre; apps NAND/pastas/cart só com `launcherWritable`. Drop
@@ -439,6 +490,48 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
 - **Projeto é inglês-only** (decisão do usuário 2026-08-15): UI, comentários de
   código, mensagens de erro e scripts GM9 gerados. O seletor de idioma do SETTINGS
   foi removido (era stub sem i18n); não reintroduzir i18n sem pedido novo.
+- **Conteúdo de orientação tem FONTE ÚNICA** (`INSTRUCTION_PAGES`, redesenho de
+  2026-08-15): array `{title, body}` com 6 páginas (o que precisa, entrar no GM9,
+  rodar script, dump, inject, troubleshooting). A aba INSTRUCTIONS mapeia esse
+  array; o guia de setup pagina o MESMO array. Não duplicar texto de orientação
+  em outro lugar. Consts de GM9 (`GM9_ENTER`, `GM9_RUN_SCRIPT`, `GM9_DUMP_WHAT`)
+  alimentam as páginas E os modais.
+- **Rótulo de botão citado em texto é SEMPRE const** (`BTN_IMPORT`,
+  `BTN_VERIFY_INJECT`, `BTN_WIZ_VERIFY`): prosa com literal + botão com rótulo
+  condicional foi a causa do "press Verify below" sob um botão escrito DONE
+  (reportado pelo usuário). Texto e botão interpolam a mesma const.
+- **Aba INSTRUCTIONS**: terceira aba do strip (`["GRID","SYNC","INSTRUCTIONS"]`
+  em `renderTop`; o dispatch do `render()` precisa de `else if` explícito, senão
+  cai no fallback SETTINGS).
+- **Wizard e guia SEPARADOS POR PROPÓSITO** (redesenho 2026-08-15, depois de 3
+  bugs seguidos na mesma tela). Os dois são caminhos de render próprios porque
+  `S` pode ser null e `renderTop`/`bind` desreferenciam `S.*`:
+  - `renderWizard(stage, detail)` EXECUTA o setup e só existe quando o app não
+    abre. Sem modo e sem flag: o estágio escolhe a tela, cada tela tem os seus
+    botões. `no_sd` (drives + pré-requisito CFW + Rescan), `no_keys`/`stale_keys`
+    (passos do dump + `BTN_WIZ_VERIFY`), `error` (**tela própria**: falha real
+    não pode se disfarçar de instalação nova). Toda tela mostra o `detail` do
+    backend e um link "Read the guide".
+  - `renderGuide(page)` só LÊ: pagina `INSTRUCTION_PAGES` com Back/Next/Close,
+    sem botão de ação e sem chamada de backend. É o que a linha "Setup guide" do
+    SETTINGS abre.
+  - **Clique no drive consome o retorno de `set_sd_root`** (que devolve o estado
+    completo, app.py): sucesso entra no app; erro chama `wizAdvance` e NAVEGA
+    para a tela do que falta. Antes pintava erro e encalhava o usuário na tela 1
+    com a solução a um passo: o caminho principal do primeiro uso estava
+    quebrado e não apareceu porque o cartão do dev sempre teve chaves.
+  - Nunca aparece no mock (sempre `ready`); hook de UI `?wizard=<stage>`.
+  - Guardado por `tests/test_ui_boot.py` (separação, consts de rótulo, `detail`
+    em toda tela, consumo do retorno, guia sem ações).
+- **Erro de write_sd fica NO MODAL** (2026-08-15, pedido do usuário): bloco
+  vermelho persistente `#writeError` + botão vira RETRY, modal não fecha. Antes
+  era toast de 2.2s e passava despercebido, custando idas ao console.
+- **Modal bloqueante pós-write** (`postWriteWarning`, 2026-08-15): após write
+  que gera `pendingInject`, avisa para NÃO bootar o HOME antes do
+  3DSort_inject. Sem `id="modalBg"` no backdrop e sem Cancel = não é
+  dispensável por clique fora; "I UNDERSTAND" leva para a aba SYNC.
+- **Cancel inject**: terceiro botão do banner de inject pendente, com modal de
+  confirmação que aponta o Verify como alternativa se o script já rodou.
 
 ## 8. Testes — estratégia em camadas (manter TODAS)
 
@@ -467,7 +560,9 @@ passo Playwright se tiver gesto de UI.
   permite DOIS processos escutando 127.0.0.1:8347 ao mesmo tempo (requests vão para o
   antigo → parece que o hot-fix "não funcionou"). SEMPRE matar o servidor antigo antes de
   subir outro.
-- SD do dev monta em `G:`; console serial REDACTED-SERIAL, USA, id0 `REDACTED…`, Luma + GM9.
+- SD do dev monta em `G:`; console USA, Luma + GM9. Serial e id0 NÃO ficam
+  documentados aqui: o repo é público e eles identificam o console (o id0 real
+  sai do `movable.sed` do sandbox quando preciso).
 - Encoding: manter arquivos .py sem acento em strings de código quando possível (console
   Windows cp1252 já corrompeu saída de erro do save3ds); UI/HTML é UTF-8 normal.
 
@@ -532,19 +627,65 @@ fixa em azul (seletor removido); sort por data de lançamento asc/desc
 (`core/titledates.py` + tabela offline de 3756 títulos, 16KB gz, §6); `+ Folder`
 com modal de nome (Cancel não cria). 113 testes.
 
-**Fase 4 (próxima)**: PyInstaller onefile embutindo `save3ds_fuse.exe`, `ui/` e
-`core/titledates.json.gz` (data file!); requirements.txt; primeira execução com
-onboarding guiado (dump boot9/movable com validação de id0, escolha do drive);
-README de distribuição; testar janela pywebview; smoke em máquina limpa.
+**Feito (2026-08-15, Fase 4 + pendências pré-release — 128 testes)**:
+- **Empacotamento**: `3DSort.spec` (onefile, windowed, `excludes=['tkinter',
+  'pytest']`), datas espelhando o layout do repo (`ui/`,
+  `tools/save3ds/save3ds_fuse.exe`, `core/titledates.json.gz`) — PyInstaller
+  ≥4.3 põe `__file__` no caminho absoluto dentro do bundle, então `ROOT` e
+  `TABLE_PATH` funcionam SEM mudança de código. `sandbox/` nunca vai no bundle
+  (o lookup degrada sozinho). `--selftest` verifica os 3 recursos e sai 0/1
+  (pega a degradação SILENCIOSA da tabela de datas, cujo `_load` engole
+  OSError). Ícone `ui/3dsort.ico` (cartão SD + grid, gerado por
+  `tools/make_icon.py`, também favicon do index.html).
+- **Exe TESTADO de ponta a ponta (2026-08-15)**: 25.6 MB; `--selftest` exit 0;
+  `--serve` servindo ui/, fontes e API de dentro do bundle; UI renderizando 12
+  ícones (Pillow/SMDH OK congelados) e sort por data funcional (tabela
+  embutida viva); janela nativa abrindo com título "3DSort" + árvore WebView2
+  (o processo pai de 8 MB é só o bootloader do onefile, o filho é o app);
+  ícone confirmado no binário via `ExtractAssociatedIcon`. Primeira execução
+  com HOME limpo e sem `--mock` AUTODETECTA o SD real e importa (só leitura;
+  o guard do §3 passou intocado depois).
+- **BUG PEGO PELO USUÁRIO (2026-08-15)**: duplo clique no exe abria janela com
+  topbar e conteúdo VAZIO. Causa: a reescrita do `boot()` para o wizard trocou
+  a condição de espera do `pywebviewready` e passou a cair no `fetch` na janela
+  nativa (405 do servidor do pywebview, §7). Meus smokes anteriores não pegaram
+  porque `--serve` tem `/api/` real e o `--mock` que rodei carregava o app.js
+  pré-reescrita. Corrigido com a flag `SERVE_MODE` + `tests/test_ui_boot.py`
+  (o teste FALHA com a condição antiga). LIÇÃO: todo smoke do exe tem que
+  SCREENSHOTAR a janela; "processo vivo com título" não prova que renderizou.
+- **Pronto para Linux** (código; binário/build ficam para quem rodar lá):
+  `core.sdcard.default_sd_candidates()` (win32 = D..P; senão 1 nível sob
+  `/media/<user>`, `/media`, `/run/media/<user>`, `/mnt`, `/Volumes`),
+  `SAVE3DS_NAME` (`.exe` só no win32) e `_RUN_KW` (CREATE_NO_WINDOW só no
+  Windows: mata o flash de console por chamada do save3ds no build windowed;
+  `creationflags` nem existe fora do Windows). O picker de pasta já era
+  cross-platform (pywebview → tkinter), só a docstring mentia.
+- **Onboarding guiado**: `get_setup_state` + wizard (§7).
+- **Aba INSTRUCTIONS**, **cancel_inject**, **erro de write no modal**,
+  **modal bloqueante pós-write**, **fontes offline** (§6/§7).
+- Validado em tela (Playwright, mock): abas, INSTRUCTIONS sem travessão,
+  wizard nos 2 estágios até entrar no app, Setup guide + Back, erro de write
+  com RETRY, modal bloqueante (clique fora não fecha), cancel inject,
+  zero requests ao Google + `document.fonts.check` OK. Smoke da janela nativa
+  (`--mock`) OK = canal js_api vivo.
 
-**v1.1 restante (pré-release)**: `cancel_inject` (abandonar payload pendente sem
-limpeza manual); erro de `write_sd` DESTACADO no modal da UI (hoje é toast e passou
-despercebido, custando idas ao console); fontes offline.
+**Feito (2026-08-15, README de distribuição)**: repo é PÚBLICO
+(`github.com/SalustianCreativeLabs/3DSort`), então screenshot com biblioteca
+real vazaria dados do console (§3.4) — as 4 imagens de `docs/images/` foram
+capturadas em `--mock` e o caminho do SD foi neutralizado na captura (o mock
+mostra `%USERPROFILE%` no cartão). README com badges estáticos (sem CI/release
+que não existem), LICENSE GPL-3.0 (alinhada ao Cthulhu). Versão unificada em
+`VERSION` no ui/app.js (era literal duplicado em 2 lugares, divergindo do §10):
+**v1.1.0**.
+
+**Distribuição (restante)**: publicar release (exe + README) e smoke em máquina
+limpa SEM Python (aqui o exe roda na máquina de dev, que tem Python instalado;
+falta a prova em máquina virgem, principalmente WebView2 ausente).
 
 **v2**: aba RULES (motor de regras), THEMES/badges.
 
-**Dívidas conscientes**: `spike.py` não usa core/ (era pra ser descartável; apagar ou
-refatorar sobre core na Fase 4). Observações de hardware já incorporadas: console
+**Dívidas conscientes**: `spike.py` não usa core/ nem `SAVE3DS_NAME` (era pra ser
+descartável; apagar quando ninguém mais consultar o histórico da Fase 1). Observações de hardware já incorporadas: console
 exibe buracos sem drama (0B/0C) e o app compacta por decisão de produto quando o
 launcher está presente (§5.4); boot do HOME entre write e inject → gate 2 aborta
 corretamente e o app exige dump fresco antes de escrita de launcher (§5.8); console
