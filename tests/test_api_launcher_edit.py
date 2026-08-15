@@ -1,7 +1,7 @@
-"""v1.1: edicao staged do layout do sistema (apps NAND, pastas, Game Card) em mock.
+"""v1.1: staged editing of the system layout (NAND apps, folders, Game Card) in mock.
 
-O mock exercita o pipeline completo (swap entre tipos, lifecycle de pastas,
-write com payload de injecao + recibo) com FakeSave3ds; so a crypto e fake.
+The mock exercises the full pipeline (swaps between types, folder lifecycle,
+write with injection payload + receipt) with FakeSave3ds; only the crypto is fake.
 """
 import hashlib
 import json
@@ -14,13 +14,13 @@ from app import MOCK_CART_POS, build_api
 from core.launcher import Launcher
 from core.savedata import OFF_FOLDER_NUM
 
-H_AND_S = "n:4"    # Health & Safety, dentro da pasta 0 (pos 0)
+H_AND_S = "n:4"    # Health & Safety, inside folder 0 (pos 0)
 SETTINGS = "n:0"   # System Settings, home pos 0
-FOLDER = "f:0"     # tile "Homebrew", home pos 9
+FOLDER = "f:0"     # "Homebrew" tile, home pos 9
 
 
 def positions(st):
-    """{key: (folder, pos)} de tudo que tem chave no estado."""
+    """{key: (folder, pos)} for everything in the state that has a key."""
     out = {i["key"]: (i["folder"], i["pos"]) for i in st["items"]}
     out.update({s["key"]: (s["folder"], s["pos"]) for s in st["system"] if s["key"]})
     out.update({f"f:{fid}": (-1, p) for fid, p in st["folderPos"].items()})
@@ -30,7 +30,7 @@ def positions(st):
 def assert_only_moved(before, after, *keys):
     for k in set(before) | set(after):
         if k not in keys:
-            assert after[k] == before[k], f"{k} se moveu sem participar do swap"
+            assert after[k] == before[k], f"{k} moved without being part of the swap"
 
 
 def test_swap_game_with_nand_exchanges_exactly():
@@ -66,7 +66,7 @@ def test_swap_game_into_folder_container():
     api = build_api(mock=True)
     before = positions(api.get_state())
     game = next(k for k, (f, p) in before.items() if k.startswith("g:") and p == 3)
-    after = positions(api.swap_items(game, H_AND_S))  # H&S esta na pasta 0, pos 0
+    after = positions(api.swap_items(game, H_AND_S))  # H&S is in folder 0, pos 0
     assert after[game] == (0, 0)
     assert after[H_AND_S] == (-1, 3)
     assert_only_moved(before, after, game, H_AND_S)
@@ -76,11 +76,11 @@ def test_folder_and_cart_stay_on_home_grid():
     api = build_api(mock=True)
     api.get_state()
     with pytest.raises(ValueError):
-        api.swap_items(FOLDER, H_AND_S)  # tile de pasta iria para DENTRO da pasta
+        api.swap_items(FOLDER, H_AND_S)  # folder tile would go INSIDE the folder
     with pytest.raises(ValueError):
         api.swap_items("cart", H_AND_S)
     with pytest.raises(ValueError):
-        api.set_folder(SETTINGS + "", 99)  # pasta inexistente
+        api.set_folder(SETTINGS + "", 99)  # nonexistent folder
 
 
 def test_launcher_mutations_need_writable():
@@ -109,11 +109,11 @@ def test_set_folder_nand_in_and_out():
     api.get_state()
     st = api.set_folder(SETTINGS, 0)
     got = positions(st)
-    assert got[SETTINGS] == (0, 1)  # H&S ocupa a pos 0 da pasta; proxima livre = 1
-    # a pos 0 liberada no home e tomada pela compactacao dos jogos
+    assert got[SETTINGS] == (0, 1)  # H&S occupies pos 0 in the folder; next free = 1
+    # the pos 0 freed on home is taken by the compaction of the games
     assert min(p for k, (f, p) in got.items() if k.startswith("g:")) == 0
     st = api.set_folder(SETTINGS, -1)
-    # de volta ao home: menor posicao livre depois da compactacao dos jogos
+    # back to home: lowest free position after the compaction of the games
     assert positions(st)[SETTINGS] == (-1, 16)
 
 
@@ -122,7 +122,7 @@ def test_folder_create_rename_delete_lifecycle():
     api.get_state()
     st = api.folder_create()
     assert st["folderNames"][1] == "New folder"
-    assert st["folderPos"][1] == MOCK_CART_POS + 1  # depois de tudo no home
+    assert st["folderPos"][1] == MOCK_CART_POS + 1  # after everything on home
     st = api.folder_rename(1, "Games")
     assert st["folderNames"][1] == "Games"
     with pytest.raises(ValueError):
@@ -131,26 +131,37 @@ def test_folder_create_rename_delete_lifecycle():
         api.folder_rename(1, "")
     st = api.folder_delete(1)
     assert 1 not in st["folderNames"]
-    api.undo()  # volta o delete
+    api.undo()  # undoes the delete
     assert api.get_state()["folderNames"][1] == "Games"
 
 
-def test_write_mirrors_folder_baptism_number_and_counter():
-    # gate 0B: create escreve nº de batismo no SaveData e incrementa o contador
-    # do Launcher; delete deixa ambos orfaos (igual ao console)
+def test_folder_create_with_name():
     api = build_api(mock=True)
     api.get_state()
-    api.folder_create()  # fid 1 (mock ja tem fid 0; contador mock = 2)
+    st = api.folder_create("Games")
+    assert st["folderNames"][1] == "Games"
+    with pytest.raises(ValueError):
+        api.folder_create("X" * 17)  # 17 UTF-16 units > 0x20 bytes
+    st = api.folder_create("")  # empty from the UI modal = default name
+    assert st["folderNames"][2] == "New folder"
+
+
+def test_write_mirrors_folder_baptism_number_and_counter():
+    # gate 0B: create writes the baptism number to the SaveData and increments the
+    # Launcher counter; delete leaves both orphaned (same as the console)
+    api = build_api(mock=True)
+    api.get_state()
+    api.folder_create()  # fid 1 (mock already has fid 0; mock counter = 2)
     api.write_sd()
     sd_out = (api.workdir / "extract" / "user" / "SaveData.dat").read_bytes()
     assert struct.unpack_from("<I", sd_out, OFF_FOLDER_NUM + 1 * 4)[0] == 2
     sd3 = Path(api.sd_root) / "3DSort"
     payload = sd3 / "homemenu_save_new.bin"
     assert Launcher(payload.read_bytes()).next_folder_number == 3
-    # fecha o ciclo de inject e apaga a pasta: campos ficam orfaos
+    # close the inject cycle and delete the folder: fields become orphaned
     (sd3 / "inject_done.sha").write_bytes(hashlib.sha256(payload.read_bytes()).digest())
     api.verify_inject()
-    # re-dump simulado: escrita de launcher exige ancora fresca pos-promote
+    # simulated re-dump: launcher write requires a fresh anchor post-promote
     (sd3 / "homemenu_save.bin.sha").write_bytes(
         hashlib.sha256((sd3 / "homemenu_save.bin").read_bytes()).digest())
     api.folder_delete(1)
@@ -161,8 +172,8 @@ def test_write_mirrors_folder_baptism_number_and_counter():
 
 
 def test_status0_game_visible_and_position_protected():
-    # gate 0C (console real): jogo nunca aberto tem status 0, o console exibe.
-    # Regressao da colisao: folder_create deve cair DEPOIS dele, nao em cima.
+    # gate 0C (real console): a never-opened game has status 0, the console shows it.
+    # Collision regression: folder_create must land AFTER it, not on top of it.
     from core.savedata import OFF_FOLDER, OFF_POS, OFF_STATUS, OFF_TID
     api = build_api(mock=True)
     sav = api.save3ds.plain / "user" / "SaveData.dat"
@@ -187,10 +198,10 @@ def test_folder_delete_returns_members_home():
     st = api.folder_delete(0)
     assert st["folderNames"] == {}
     got = positions(st)
-    # jogo membro volta para o fim dos jogos; H&S (NAND) depois de todos
+    # member game goes back to the end of the games; H&S (NAND) after all of them
     assert got[f"g:{game}"][0] == -1
     assert got[H_AND_S] == (-1, 16)
-    # jogos compactam na pos 9 liberada pelo tile da pasta
+    # games compact into pos 9 freed by the folder tile
     game_pos = sorted(p for k, (f, p) in got.items() if k.startswith("g:"))
     assert game_pos == [3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15]
 
@@ -204,9 +215,9 @@ def test_folder_empty_keeps_folder():
 
 
 def test_launcher_write_requires_fresh_dump_after_promote():
-    # 0C (console real): qualquer boot do HOME drifta bytes volateis da NAND,
-    # entao a copia promovida pos-inject NAO e ancora valida. Escrita de
-    # launcher exige .sha de dump fresco ao lado do container.
+    # 0C (real console): any HOME boot drifts volatile bytes in the NAND,
+    # so the copy promoted post-inject is NOT a valid anchor. Launcher
+    # writes require the .sha of a fresh dump next to the container.
     api = build_api(mock=True)
     api.get_state()
     api.swap_items(SETTINGS, FOLDER)
@@ -215,13 +226,13 @@ def test_launcher_write_requires_fresh_dump_after_promote():
     payload = sd3 / "homemenu_save_new.bin"
     (sd3 / "inject_done.sha").write_bytes(hashlib.sha256(payload.read_bytes()).digest())
     api.verify_inject()
-    # promote descarta as ancoras de proposito
+    # promote discards the anchors on purpose
     assert not (sd3 / "homemenu_save.bin.sha").exists()
     assert not (sd3 / "homemenu_save_new.bin.sha").exists()
     api.swap_items(SETTINGS, FOLDER)
     st = api.write_sd()
     assert "3DSort_dump" in st["error"]
-    # re-dump simulado (o cp --hash do GM9 regenera o par bin+sha)
+    # simulated re-dump (GM9's cp --hash regenerates the bin+sha pair)
     (sd3 / "homemenu_save.bin.sha").write_bytes(
         hashlib.sha256((sd3 / "homemenu_save.bin").read_bytes()).digest())
     st = api.write_sd()
@@ -229,13 +240,13 @@ def test_launcher_write_requires_fresh_dump_after_promote():
 
 
 def test_write_keeps_theme_changed_on_console_after_import():
-    # usuario troca o tema NO CONSOLE depois do import: o write nao pode
-    # regredir (enxerto da regiao 0x13B8+ a partir do cartao no momento do write)
+    # user changes the theme ON THE CONSOLE after the import: the write must not
+    # regress it (graft of the 0x13B8+ region from the card at write time)
     api = build_api(mock=True)
     st = api.get_state()
     sav = api.save3ds.plain / "user" / "SaveData.dat"
     buf = bytearray(sav.read_bytes())
-    buf[0x13B8] = 0x42  # "tema" novo gravado pelo console apos o import
+    buf[0x13B8] = 0x42  # new "theme" written by the console after the import
     sav.write_bytes(bytes(buf))
     api.swap_items(st["items"][0]["slot"], st["items"][1]["slot"])
     api.write_sd()
@@ -244,8 +255,8 @@ def test_write_keeps_theme_changed_on_console_after_import():
 
 
 def test_every_write_unwraps_all_icons():
-    # mecanismo do Cthulhu, sempre ligado: todo write zera o array de status
-    # (0 = desembrulhado sempre; o console re-marca "novo" sozinho se quiser)
+    # Cthulhu's mechanism, always on: every write zeroes the status array
+    # (0 = always unwrapped; the console re-marks "new" on its own if it wants)
     from core.savedata import OFF_STATUS
     api = build_api(mock=True)
     st = api.get_state()
@@ -256,12 +267,12 @@ def test_every_write_unwraps_all_icons():
 
 
 def test_gap_is_free_when_launcher_present_and_reserved_without():
-    # 0C: com launcher todo dono e conhecido (tid+pos no SD; NAND/pastas/cart no
-    # Launcher) — buraco e vaga livre real, nao reserva eterna. Sem launcher a
-    # reserva continua (donos invisiveis sao possiveis).
+    # 0C: with launcher every owner is known (tid+pos on SD; NAND/folders/cart in
+    # the Launcher) -- a gap is a real free slot, not an eternal reservation.
+    # Without launcher the reservation stays (invisible owners are possible).
     from core.savedata import OFF_FOLDER, OFF_POS, OFF_TID
 
-    def craft_gap(api):  # jogo em MOCK_CART_POS+2 deixa buraco em +1
+    def craft_gap(api):  # game at MOCK_CART_POS+2 leaves a gap at +1
         sav = api.save3ds.plain / "user" / "SaveData.dat"
         buf = bytearray(sav.read_bytes())
         struct.pack_into("<Q", buf, OFF_TID + 30 * 8, 0x00040000DEAD0000)
@@ -274,7 +285,7 @@ def test_gap_is_free_when_launcher_present_and_reserved_without():
     st = api.import_sd()
     assert not any(s.get("hole") for s in st["system"])
     a, b = st["items"][0]["slot"], st["items"][1]["slot"]
-    st = api.swap_items(a, b)  # qualquer mutacao redistribui posicoes
+    st = api.swap_items(a, b)  # any mutation redistributes positions
     poss = sorted(p for k, (f, p) in positions(st).items() if k.startswith("g:"))
     assert MOCK_CART_POS + 1 in poss and MOCK_CART_POS + 2 not in poss
 
@@ -285,13 +296,13 @@ def test_gap_is_free_when_launcher_present_and_reserved_without():
 
 
 def test_restore_backup_ensures_boss_dir():
-    # cinto para backups legados (zip sem entries de diretorio): extdata
-    # importado sem boss/ faz o HOME reconstruir o SaveData inteiro (Fase 0C)
+    # safety belt for legacy backups (zip without directory entries): extdata
+    # imported without boss/ makes the HOME rebuild the whole SaveData (Phase 0C)
     api = build_api(mock=True)
     st = api.get_state()
     a, b = st["items"][0]["slot"], st["items"][1]["slot"]
     api.swap_items(a, b)
-    api.write_sd()  # backup auto vem do mock, que nao tem boss/
+    api.write_sd()  # auto backup comes from the mock, which has no boss/
     bid = api.backups.history()[-1]["id"]
     api.restore_backup(bid)
     assert (api.workdir / "extract" / "boss").is_dir()
@@ -320,9 +331,9 @@ def test_write_launcher_dirty_publishes_payload_and_verifies():
     assert (scripts / "3DSort_dump.gm9").exists()
     inject = (scripts / "3DSort_inject.gm9").read_text(encoding="ascii")
     assert "fixcmac" in inject and "allow" in inject and "inject_done.sha" in inject
-    # sem recibo, verify falha
+    # without the receipt, verify fails
     assert "error" in api.verify_inject()
-    # recibo do GM9 = sha do payload; ai verify promove e limpa o pendente
+    # GM9 receipt = sha of the payload; then verify promotes and clears the pending
     (sd3 / "inject_done.sha").write_bytes(hashlib.sha256(payload.read_bytes()).digest())
     st = api.verify_inject()
     assert st["pendingInject"] is None
@@ -337,25 +348,25 @@ def test_stale_container_blocks_launcher_write():
     api.get_state()
     api.swap_items(SETTINGS, FOLDER)
     raw = bytearray(Path(api.container_path).read_bytes())
-    raw[-1] ^= 0xFF  # container mudou no disco depois do parse
+    raw[-1] ^= 0xFF  # container changed on disk after the parse
     Path(api.container_path).write_bytes(bytes(raw))
     r = api.write_sd()
     assert "error" in r and "Re-dump" in r["error"]
-    assert api.get_state()["staged"]  # staging preservado para retry
+    assert api.get_state()["staged"]  # staging preserved for retry
 
 
 def test_freed_position_is_reusable_after_write():
-    """Jogo movido para pasta libera uma posicao: com launcher presente ela e
-    vaga livre REAL (sem placeholder 'Empty slot') e volta a ser usada (0C)."""
+    """A game moved into a folder frees a position: with launcher present it is
+    a REAL free slot (no 'Empty slot' placeholder) and gets used again (0C)."""
     api = build_api(mock=True)
     st = api.get_state()
-    game = st["items"][-1]["slot"]  # ultimo jogo do home (pos 16)
+    game = st["items"][-1]["slot"]  # last game on home (pos 16)
     api.set_folder(game, 0)
     api.write_sd()
     st = api.import_sd()
     assert not any(s.get("hole") for s in st["system"])
     assert 16 not in {i["pos"] for i in st["items"]}
-    # a vaga liberada volta ao conjunto usado quando o jogo retorna ao home
+    # the freed slot returns to the used set when the game goes back home
     st = api.set_folder(game, -1)
     poss = sorted(p for k, (f, p) in positions(st).items()
                   if k.startswith("g:") and f == -1)
@@ -366,9 +377,9 @@ def test_backup_includes_launcher_and_restore_stages_it():
     api = build_api(mock=True)
     before = positions(api.get_state())
     api.swap_items(SETTINGS, FOLDER)
-    st = api.write_sd()  # backup auto guarda o launcher PRE-escrita
+    st = api.write_sd()  # auto backup stores the PRE-write launcher
     bid = st["history"][0]["id"]
     st = api.restore_backup(bid)
     assert st["staged"][-1].startswith("Restored backup")
-    assert st["launcherDirty"] is True  # restaurar o layout antigo exige novo write
+    assert st["launcherDirty"] is True  # restoring the old layout requires a new write
     assert positions(st) == before

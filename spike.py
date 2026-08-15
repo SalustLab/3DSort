@@ -1,6 +1,6 @@
-# Fase 1 spike: prova de viabilidade do round-trip no SD sandbox.
-# NUNCA toca o SD real (G:) — opera só em sandbox/.
-# Uso: python spike.py
+# Phase 1 spike: viability proof of the round-trip on the sandbox SD.
+# NEVER touches the real SD (G:) - operates only on sandbox/.
+# Usage: python spike.py
 import shutil
 import struct
 import subprocess
@@ -27,15 +27,15 @@ def step(msg):
 
 def extract_movable():
     if MOVABLE.exists():
-        print(f"movable.sed ja existe ({MOVABLE.stat().st_size} bytes)")
+        print(f"movable.sed already exists ({MOVABLE.stat().st_size} bytes)")
         return
     from pyctr.type.exefs import ExeFSReader
     with ExeFSReader(ESSENTIAL) as e:
         names = list(e.entries)
-        print("entradas no essential.exefs:", names)
+        print("entries in essential.exefs:", names)
         with e.open("movable") as f:
             MOVABLE.write_bytes(f.read())
-    print(f"movable.sed extraido ({MOVABLE.stat().st_size} bytes)")
+    print(f"movable.sed extracted ({MOVABLE.stat().st_size} bytes)")
 
 
 def run_save3ds(mode, target_dir):
@@ -52,7 +52,7 @@ def run_save3ds(mode, target_dir):
     print(r.stdout)
     if r.returncode != 0:
         print(r.stderr)
-        sys.exit(f"save3ds falhou (exit {r.returncode})")
+        sys.exit(f"save3ds failed (exit {r.returncode})")
 
 
 def parse_savedata(data):
@@ -72,7 +72,7 @@ def parse_savedata(data):
 SMDH_LARGE_OFF = 0x24C0
 SMDH_LARGE_LEN = 0x1200
 SMDH_ENTRY = 0x36C0
-# ordem Morton (z-curve) dentro de cada tile 8x8, padrao de textura do 3DS
+# Morton order (z-curve) inside each 8x8 tile, 3DS texture pattern
 _MORTON = [
     (((i & 1) | ((i & 4) >> 1) | ((i & 16) >> 2)),
      (((i & 2) >> 1) | ((i & 8) >> 2) | ((i & 32) >> 3)))
@@ -106,12 +106,12 @@ def main():
 
     step("1. boot9.bin")
     if not BOOT9.exists():
-        print(f"FALTA {BOOT9}")
-        print("Dump no console via GodMode9 (ver instrucoes no chat) e copie para essa pasta.")
+        print(f"MISSING {BOOT9}")
+        print("Dump it on the console via GodMode9 (see instructions in chat) and copy it to this folder.")
         sys.exit(1)
     print(f"boot9.bin ok ({BOOT9.stat().st_size} bytes)")
 
-    step("2. extract do extdata (sandbox)")
+    step("2. extdata extract (sandbox)")
     if EXTRACT.exists():
         shutil.rmtree(EXTRACT)
     run_save3ds("--extract", EXTRACT)
@@ -123,7 +123,7 @@ def main():
     sav_path = EXTRACT / "user" / "SaveData.dat"
     data = bytearray(sav_path.read_bytes())
     version, slots = parse_savedata(data)
-    print(f"versao={version}, {len(slots)} icones ativos")
+    print(f"version={version}, {len(slots)} active icons")
     cache = (EXTRACT / "user" / "Cache.dat").read_bytes()
     cached = (EXTRACT / "user" / "CacheD.dat").read_bytes()
     cache_tids = {}
@@ -139,9 +139,9 @@ def main():
     for s in sorted(slots, key=lambda s: s["pos"])[:20]:
         n = names.get(s["tid"], "?")
         print(f"  pos={s['pos']:3d} folder={s['folder']:3d} tid={s['tid']:016x} {n}")
-    print(f"  ... ({len(slots)} no total, {len(names)} nomes no cache)")
+    print(f"  ... ({len(slots)} total, {len(names)} names in cache)")
 
-    step("4. decode de 3 icones reais")
+    step("4. decode 3 real icons")
     OUT_ICONS.mkdir(exist_ok=True)
     done = 0
     for tid, idx in cache_tids.items():
@@ -155,19 +155,19 @@ def main():
         done += 1
         if done == 3:
             break
-    assert done == 3, "menos de 3 SMDH validos no cache"
+    assert done == 3, "fewer than 3 valid SMDH entries in the cache"
 
-    step("5. swap de 2 posicoes no SaveData.dat")
+    step("5. swap 2 positions in SaveData.dat")
     a, b = sorted(slots, key=lambda s: s["pos"])[:2]
-    print(f"  trocando '{names.get(a['tid'], a['tid'])}' (pos {a['pos']}) <-> '{names.get(b['tid'], b['tid'])}' (pos {b['pos']})")
+    print(f"  swapping '{names.get(a['tid'], a['tid'])}' (pos {a['pos']}) <-> '{names.get(b['tid'], b['tid'])}' (pos {b['pos']})")
     struct.pack_into("<h", data, 0xCB0 + a["slot"] * 2, b["pos"])
     struct.pack_into("<h", data, 0xCB0 + b["slot"] * 2, a["pos"])
     sav_path.write_bytes(data)
 
-    step("6. import de volta no sandbox")
+    step("6. import back into the sandbox")
     run_save3ds("--import", EXTRACT)
 
-    step("7. re-extract e verificacao")
+    step("7. re-extract and verification")
     if VERIFY.exists():
         shutil.rmtree(VERIFY)
     run_save3ds("--extract", VERIFY)
@@ -178,14 +178,14 @@ def main():
         rel = p.relative_to(EXTRACT)
         q = VERIFY / rel
         same = q.exists() and q.read_bytes() == p.read_bytes()
-        print(f"  {rel}: {'IGUAL' if same else 'DIFERENTE'}")
+        print(f"  {rel}: {'SAME' if same else 'DIFFERENT'}")
         ok = ok and same
     v2, slots2 = parse_savedata((VERIFY / "user" / "SaveData.dat").read_bytes())
     pos2 = {s["tid"]: s["pos"] for s in slots2}
-    assert pos2[a["tid"]] == b["pos"] and pos2[b["tid"]] == a["pos"], "swap nao persistiu"
-    assert {s["tid"] for s in slots2} == {s["tid"] for s in slots}, "titulos perdidos"
-    assert ok, "round-trip divergiu"
-    print("\nSPIKE OK: round-trip completo, swap persistido, nenhum titulo perdido.")
+    assert pos2[a["tid"]] == b["pos"] and pos2[b["tid"]] == a["pos"], "swap did not persist"
+    assert {s["tid"] for s in slots2} == {s["tid"] for s in slots}, "titles lost"
+    assert ok, "round-trip diverged"
+    print("\nSPIKE OK: full round-trip, swap persisted, no title lost.")
 
 
 if __name__ == "__main__":

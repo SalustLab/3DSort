@@ -1,10 +1,10 @@
-"""3DSort — app desktop (pywebview) e modo dev --serve para testes Playwright.
+"""3DSort — desktop app (pywebview) and --serve dev mode for Playwright tests.
 
-Uso:
-  python app.py                 janela nativa (SD real, se encontrado)
-  python app.py --serve [porta] UI + API em http://127.0.0.1:porta (dev/testes)
-  python app.py --mock          dados sinteticos (sem SD/boot9) — combinavel com --serve
-  python app.py --sd CAMINHO    usa esse caminho como raiz do SD (ex.: o sandbox)
+Usage:
+  python app.py                 native window (real SD, if found)
+  python app.py --serve [port]  UI + API at http://127.0.0.1:port (dev/tests)
+  python app.py --mock          synthetic data (no SD/boot9) — combinable with --serve
+  python app.py --sd PATH       use this path as the SD root (e.g. the sandbox)
 """
 import copy
 import hashlib
@@ -22,17 +22,18 @@ from core.savedata import SaveData, assign_positions
 from core.sdcard import (NAND_SAVE_IDS, Save3ds, find_console, find_sd_drive,
                          id0_from_movable, list_3ds_roots)
 from core.store import Backups, Staging
+from core import titledates
 
 ROOT = Path(__file__).parent
 UI = ROOT / "ui"
 APP_DIR = Path.home() / "3DSort"
 
-# sub-estado do staging que vive no Launcher.dat (NAND); o resto e SaveData.dat (SD)
+# staging sub-state that lives in Launcher.dat (NAND); the rest is SaveData.dat (SD)
 LAUNCHER_KEYS = ("nand_pos", "nand_folder", "folder_defs", "cart_pos")
 
 
 class Api:
-    """Camada unica consumida pela ponte js_api do pywebview e pelo modo --serve."""
+    """Single layer consumed by the pywebview js_api bridge and by --serve mode."""
 
     def __init__(self, save3ds: Save3ds, sd_root: Path | None, workdir: Path,
                  backups: Backups, launcher: Path | None = None,
@@ -41,31 +42,31 @@ class Api:
         self.sd_root = sd_root
         self.workdir = Path(workdir)
         self.backups = backups
-        self.launcher_path = launcher      # Launcher.dat plano (fallback read-only)
-        self.container_path = container    # homemenu_save.bin (system save, editavel)
+        self.launcher_path = launcher      # flat Launcher.dat (read-only fallback)
+        self.container_path = container    # homemenu_save.bin (system save, editable)
         self.console = None
         self.staging = None
         self._names = {}
         self._icons = {}
-        self._unknown_holes = {}   # {conteiner: {pos abaixo do max sem dono conhecido}}
+        self._unknown_holes = {}   # {container: {pos below max with no known owner}}
         self._launcher_writable = False
-        self._launcher_raw = None      # bytes do Launcher.dat como carregado
-        self._launcher_baseline = None  # sub-estado launcher no load (p/ dirty check)
-        self._container_sha = None     # sha do container no parse (gate anti-obsoleto)
+        self._launcher_raw = None      # Launcher.dat bytes as loaded
+        self._launcher_baseline = None  # launcher sub-state at load (for dirty check)
+        self._container_sha = None     # container sha at parse (anti-stale gate)
 
-    # ---- ciclo de vida -------------------------------------------------
+    # ---- lifecycle -------------------------------------------------
     def import_sd(self):
-        """(Re)le o layout do SD para o workdir e reinicia o staging."""
+        """(Re)reads the SD layout into the workdir and resets the staging."""
         if self.sd_root is None:
             self.sd_root = find_sd_drive()
         elif not (Path(self.sd_root) / "Nintendo 3DS").is_dir():
-            # letra do drive pode mudar entre execucoes: re-autodetecta
+            # drive letter can change between runs: re-autodetect
             self.sd_root = find_sd_drive() or self.sd_root
         if self.sd_root is None:
-            return {"error": "SD do 3DS nao encontrado"}
+            return {"error": "3DS SD card not found"}
         self.console = find_console(self.sd_root)
-        # script sempre no SD ANTES de exigir chaves: o proprio dump e quem
-        # traz boot9/movable/container para o app ler (sem copia manual)
+        # script goes to the SD BEFORE requiring keys: the dump itself is what
+        # brings boot9/movable/container for the app to read (no manual copy)
         self._publish_dump_script()
         err = self._resolve_keys()
         if err:
@@ -87,7 +88,7 @@ class Api:
         self._names, self._icons = {}, {}
         for tid, i in idx.items():
             e = smdh_entry(cached, i)
-            n = smdh_short_name(e) or twl_short_name(e)  # TWL = DSiWare (banner NDS)
+            n = smdh_short_name(e) or twl_short_name(e)  # TWL = DSiWare (NDS banner)
             if n:
                 self._names[tid] = n
                 self._icons[tid] = icon_png_b64(e) or twl_icon_png_b64(e)
@@ -109,10 +110,10 @@ class Api:
         self._launcher_raw = launcher_raw
         self._launcher_baseline = copy.deepcopy({k: st[k] for k in LAUNCHER_KEYS})
         self.staging = Staging(st)
-        # Com launcher, TODO ocupante e conhecido (jogos por tid+pos; NAND,
-        # pastas e cart no Launcher) — buraco e vaga livre real (gate 0C).
-        # SEM launcher, buracos podem ter dono invisivel (apps NAND inferidos):
-        # ficam reservados e viram placeholders "System app".
+        # With a launcher, EVERY occupant is known (games by tid+pos; NAND,
+        # folders and cart in the Launcher): a hole is a truly free slot (gate 0C).
+        # WITHOUT a launcher, holes may have an invisible owner (inferred NAND
+        # apps): they stay reserved and become "System app" placeholders.
         if launcher_raw:
             self._unknown_holes = {}
         else:
@@ -129,8 +130,8 @@ class Api:
         return NAND_SAVE_IDS[region]
 
     def _publish_dump_script(self):
-        """Publica o 3DSort_dump.gm9 no SD em todo import. E ele quem cospe
-        container + chaves em 0:/3DSort — o usuario nunca copia arquivo a mao."""
+        """Publishes 3DSort_dump.gm9 to the SD on every import. It is what spits
+        container + keys into 0:/3DSort: the user never copies a file by hand."""
         scripts = Path(self.sd_root) / "gm9" / "scripts"
         scripts.mkdir(parents=True, exist_ok=True)
         (scripts / "3DSort_dump.gm9").write_text(
@@ -138,11 +139,11 @@ class Api:
             encoding="ascii", newline="\n")
 
     def _resolve_keys(self) -> str | None:
-        """Resolve boot9/movable: SD (0:/3DSort do dump, depois gm9/out) tem
-        precedencia sobre os paths do build_api. Valida o movable contra o id0
-        da pasta (armadilha da chave velha, CLAUDE.md §5.3). Retorna msg de erro
-        amigavel ou None."""
-        if getattr(self.save3ds, "boot9", None) is None:  # mock nao usa chaves
+        """Resolves boot9/movable: the SD (0:/3DSort from the dump, then gm9/out)
+        takes precedence over the build_api paths. Validates the movable against
+        the folder's id0 (old-key trap, CLAUDE.md §5.3). Returns a friendly error
+        message or None."""
+        if getattr(self.save3ds, "boot9", None) is None:  # mock uses no keys
             return None
         if self.sd_root is not None:
             dirs = (Path(self.sd_root) / "3DSort", Path(self.sd_root) / "gm9" / "out")
@@ -170,15 +171,15 @@ class Api:
         if self.sd_root is not None:
             sd3 = Path(self.sd_root) / "3DSort"
             if self._pending_inject_info():
-                # ha escrita publicada: o container GERADO e a verdade do app
+                # a write is published: the GENERATED container is the app's truth
                 cands.append(sd3 / "homemenu_save_new.bin")
             cands.append(sd3 / "homemenu_save.bin")
-        if self.container_path:  # explicito (build_api: sandbox/APP_DIR; mock: tmp)
+        if self.container_path:  # explicit (build_api: sandbox/APP_DIR; mock: tmp)
             cands.append(Path(self.container_path))
         return next((p for p in cands if p.exists()), None)
 
     def _read_launcher(self) -> bytes | None:
-        """Container (editavel, via save3ds --nandsave) > arquivo plano (read-only)."""
+        """Container (editable, via save3ds --nandsave) > flat file (read-only)."""
         self._launcher_writable = False
         self._container_sha = None
         cont = self._find_container()
@@ -197,9 +198,9 @@ class Api:
             return Path(self.launcher_path).read_bytes()
         return None
 
-    # ---- leitura -------------------------------------------------------
+    # ---- reads -------------------------------------------------------
     def _reserved_now(self, st) -> dict:
-        """Reservas dinamicas: buracos sem dono ∪ posicoes STAGED de NAND/pasta/cart."""
+        """Dynamic reservations: ownerless holes + STAGED NAND/folder/cart positions."""
         res = {c: set(ps) for c, ps in self._unknown_holes.items()}
         for slot, p in st["nand_pos"].items():
             res.setdefault(st["nand_folder"][slot], set()).add(p)
@@ -218,7 +219,7 @@ class Api:
             if "error" in r:
                 return r
         st = self.staging.state
-        # mesma atribuicao que write_sd fara: posicao por conteiner, pulando reservas
+        # same assignment write_sd will do: position per container, skipping reserved
         pos_map = assign_positions(st["order"], st["folders"], self._reserved_now(st))
         items = []
         for slot in st["order"]:
@@ -239,9 +240,9 @@ class Api:
             system.append({"key": "cart", "slot": None, "tid": None,
                            "pos": st["cart_pos"], "folder": -1, "pinned": pinned,
                            "name": "Game Card", "icon": None})
-        # buracos abaixo do maximo: sem Launcher.dat o dono e desconhecido ("System
-        # app"); com Launcher.dat sao vagas livres do grid ("hole": o console mostra
-        # um espaco vazio ali). Ambos ficam reservados: nada e realocado para eles.
+        # holes below the maximum: without Launcher.dat the owner is unknown ("System
+        # app"); with Launcher.dat they are free grid slots ("hole": the console shows
+        # an empty space there). Both stay reserved: nothing gets relocated onto them.
         hole = self._launcher_raw is not None
         system += [{"key": None, "slot": None, "tid": None, "pos": p, "folder": -1,
                     "pinned": True, "hole": hole,
@@ -274,19 +275,19 @@ class Api:
                 du = shutil.disk_usage(self.sd_root)
                 info["total_bytes"] = du.total
                 info["used_bytes"] = du.used
-                info["free_blocks"] = du.free // 131072  # bloco do 3DS = 128 KB
+                info["free_blocks"] = du.free // 131072  # 3DS block = 128 KB
             except OSError:
                 pass
         return info
 
-    # ---- mutacoes (staged) ----------------------------------------------
+    # ---- mutations (staged) ----------------------------------------------
     def _commit(self, label, **changes):
         self.staging.commit(label, {**self.staging.state, **changes})
         return self.get_state()
 
     @staticmethod
     def _key(k) -> tuple[str, int | None]:
-        """int ou 'g:N' -> ('g',N); 'n:N' -> ('n',N); 'f:N' -> ('f',N); 'cart'."""
+        """int or 'g:N' -> ('g',N); 'n:N' -> ('n',N); 'f:N' -> ('f',N); 'cart'."""
         if isinstance(k, int):
             return ("g", k)
         if k == "cart":
@@ -303,7 +304,7 @@ class Api:
                              "system save first (see the SYNC tab).")
 
     def _entity_pos(self, st) -> dict:
-        """{(kind, n): (conteiner, pos)} para todas as entidades staged."""
+        """{(kind, n): (container, pos)} for every staged entity."""
         pos_map = assign_positions(st["order"], st["folders"], self._reserved_now(st))
         out = {("g", s): (st["folders"][s], pos_map[s]) for s in st["order"]}
         for slot, p in st["nand_pos"].items():
@@ -337,7 +338,7 @@ class Api:
         return self._commit(f"Moved {self._names.get(tid, slot)}", order=order)
 
     def swap_items(self, a, b):
-        """Troca exata de lugar entre dois tiles de qualquer tipo — ninguem mais se move."""
+        """Exact place swap between two tiles of any type: nothing else moves."""
         ka, kb = self._key(a), self._key(b)
         st = self.staging.state
         if ka[0] == "g" and kb[0] == "g":
@@ -378,9 +379,9 @@ class Api:
             changes["cart_pos"] = pos
 
     def _rebuild_order(self, st, changes, desired, pos_of):
-        """Reconstroi order/folders para que assign_positions reproduza as posicoes
-        desejadas. Valido porque todo buraco abaixo do maximo e reservado: o conjunto
-        de posicoes livres por conteiner e exatamente o conjunto ocupado pelos jogos."""
+        """Rebuilds order/folders so assign_positions reproduces the desired
+        positions. Valid because every hole below the maximum is reserved: the set
+        of free positions per container is exactly the set occupied by the games."""
         base = {s: desired.get(s, pos_of[("g", s)]) for s in st["order"]}
         changes["order"] = [s for s, _ in sorted(base.items(),
                                                  key=lambda kv: (kv[1][1], kv[0]))]
@@ -404,7 +405,7 @@ class Api:
             nand_pos = dict(st["nand_pos"])
             nand_folder = dict(st["nand_folder"])
             nand_folder[n] = folder
-            # posicao explicita no conteiner de destino: menor livre
+            # explicit position in the destination container: lowest free
             probe = {**st, "nand_pos": {k: v for k, v in nand_pos.items() if k != n},
                      "nand_folder": nand_folder}
             nand_pos[n] = self._next_free(probe, folder)
@@ -412,10 +413,15 @@ class Api:
                                 nand_pos=nand_pos, nand_folder=nand_folder)
         raise ValueError("Folders and the Game Card cannot go inside folders.")
 
-    # ---- pastas (lifecycle, staged) --------------------------------------
-    def folder_create(self):
+    # ---- folders (lifecycle, staged) -------------------------------------
+    def folder_create(self, name=None):
         self._require_writable()
         st = self.staging.state
+        if name is not None and name != "":
+            if len(name.encode("utf-16-le")) > 0x20:
+                raise ValueError("Folder name must be 1 to 16 characters.")
+        else:
+            name = "New folder"
         referenced = set(st["folders"].values()) | set(st["nand_folder"].values())
         free = [i for i in range(60) if i not in st["folder_defs"] and i not in referenced]
         if not free:
@@ -427,8 +433,9 @@ class Api:
         if pos >= 360:
             raise ValueError("Home grid is full.")
         defs = copy.deepcopy(st["folder_defs"])
-        defs[fid] = {"pos": pos, "name": "New folder", "rows": 2}
-        return self._commit("Created folder", folder_defs=defs)
+        defs[fid] = {"pos": pos, "name": name, "rows": 2}
+        return self._commit(f"Created folder {name}" if name != "New folder"
+                            else "Created folder", folder_defs=defs)
 
     def folder_rename(self, fid: int, name: str):
         self._require_writable()
@@ -443,7 +450,7 @@ class Api:
         return self._commit(f"Renamed folder {old} to {name}", folder_defs=defs)
 
     def _return_members_home(self, st, fid, changes):
-        """Membros da pasta voltam ao home: jogos no fim da ordem, NAND depois deles."""
+        """Folder members return to home: games at the end of the order, NAND after."""
         game_members = [s for s in st["order"] if st["folders"][s] == fid]
         folders = dict(st["folders"])
         for s in game_members:
@@ -483,19 +490,31 @@ class Api:
             raise ValueError(f"Folder {fid} does not exist.")
         defs = copy.deepcopy(st["folder_defs"])
         name = defs.pop(fid)["name"]
-        # defs sem a pasta ANTES de reposicionar membros: o tile liberado
-        # entra na compactacao e os membros ocupam as menores posicoes reais
+        # defs without the folder BEFORE repositioning members: the freed tile
+        # joins the compaction and members take the lowest real positions
         changes = {"folder_defs": defs}
         self._return_members_home(st, fid, changes)
         return self._commit(f"Deleted folder {name}", **changes)
 
     def sort_preset(self, preset: str):
+        labels = {"az": "A → Z", "za": "Z → A",
+                  "date_asc": "Release date ↑", "date_desc": "Release date ↓"}
+        if preset not in labels:
+            raise ValueError(f"Unknown sort preset: {preset}")
         st = self.staging.state
-        keyed = [(self._names.get(st["tids"][s], ""), s) for s in st["order"]]
-        rev = preset in ("za",)
-        order = [s for _, s in sorted(keyed, key=lambda t: t[0].lower(), reverse=rev)]
-        label = {"az": "A → Z", "za": "Z → A"}[preset]
-        return self._commit(f"Sorted: {label}", order=order)
+        if preset in ("az", "za"):
+            keyed = [(self._names.get(st["tids"][s], ""), s) for s in st["order"]]
+            order = [s for _, s in sorted(keyed, key=lambda t: t[0].lower(),
+                                          reverse=(preset == "za"))]
+        else:
+            # Titles without a known release date go LAST in both directions.
+            dated, undated = [], []
+            for s in st["order"]:
+                d = titledates.release_date(st["tids"][s])
+                (dated if d else undated).append((d, s))
+            dated.sort(key=lambda t: t[0], reverse=(preset == "date_desc"))
+            order = [s for _, s in dated] + [s for _, s in undated]
+        return self._commit(f"Sorted: {labels[preset]}", order=order)
 
     def undo(self):
         if self.staging._undo:
@@ -508,7 +527,7 @@ class Api:
         return self.get_state()
 
     def reset_staging(self):
-        """Descarta todas as mudancas staged (cada uma recuperavel via redo)."""
+        """Discards every staged change (each one recoverable via redo)."""
         while self.staging._undo:
             self.staging.undo()
         return self.get_state()
@@ -516,11 +535,11 @@ class Api:
     # ---- SD + NAND ---------------------------------------------------------
     def backup_manual(self):
         self.backups.create(self.workdir / "extract", kind="manual",
-                            note="backup manual", extra=self._backup_extra())
+                            note="manual backup", extra=self._backup_extra())
         return self.get_state()
 
     def _backup_extra(self) -> dict:
-        """Launcher/container entram no zip fora da arvore de extdata (__nand__/)."""
+        """Launcher/container go into the zip outside the extdata tree (__nand__/)."""
         extra = {}
         if self._launcher_raw:
             extra["__nand__/Launcher.dat"] = self._launcher_raw
@@ -534,15 +553,16 @@ class Api:
         self.backups.restore(backup_id, ext)
         restored_launcher = None
         nand_dir = ext / "__nand__"
-        if nand_dir.exists():  # tirar do extract ANTES do proximo import para o SD
+        if nand_dir.exists():  # remove from extract BEFORE the next import to the SD
             lp = nand_dir / "Launcher.dat"
             restored_launcher = lp.read_bytes() if lp.exists() else None
             shutil.rmtree(nand_dir)
-        # cinto para backups legados sem entries de diretorio no zip: o extdata
-        # nunca pode ir ao SD sem boss/ (o HOME reconstruiria o SaveData, Fase 0C)
+        # safety belt for legacy backups without directory entries in the zip: the
+        # extdata must never reach the SD without boss/ (HOME would rebuild the
+        # SaveData, Phase 0C)
         (ext / "boss").mkdir(exist_ok=True)
         self._load(ext)
-        # restaurar e um estado novo em relacao ao SD: precisa ficar staged para o WRITE
+        # a restore is a new state relative to the SD: must stay staged for the WRITE
         if restored_launcher and self._launcher_writable:
             entries, lfolders, cart = parse_launcher(restored_launcher)
             self.staging.commit(f"Restored backup {backup_id}", {
@@ -559,12 +579,13 @@ class Api:
         return self.get_state()
 
     def write_sd(self):
-        """Aplica o staging ao SaveData.dat (e, se preciso, ao Launcher.dat) e importa.
-        Backup antes, sempre. All-or-nothing: os dois arquivos saem do MESMO snapshot;
-        se o ramo launcher falhar, o staging NAO e limpo e o retry e idempotente."""
+        """Applies the staging to SaveData.dat (and, if needed, Launcher.dat) and
+        imports. Backup first, always. All-or-nothing: both files come from the SAME
+        snapshot; if the launcher branch fails, staging is NOT cleared and the retry
+        is idempotent."""
         n = len(self.staging.staged)
         if n == 0:
-            return {"error": "nada staged"}
+            return {"error": "nothing staged"}
         st = self.staging.state
         dirty = self._launcher_dirty(st)
         if dirty:
@@ -573,23 +594,23 @@ class Api:
             if cur != self._container_sha:
                 return {"error": "System save changed on disk. Re-dump it in "
                                  "GodMode9 and re-import before writing."}
-            # ancora do gate 2 so vale se veio de dump fresco do GM9 (cp --hash).
-            # Copia promovida pos-inject nao tem .sha de proposito: qualquer boot
-            # do HOME drifta bytes volateis da NAND (observado na Fase 0C)
+            # the gate-2 anchor only counts if it came from a fresh GM9 dump
+            # (cp --hash). The copy promoted post-inject has no .sha on purpose:
+            # any HOME boot drifts volatile NAND bytes (observed in Phase 0C)
             sha_file = Path(str(self.container_path) + ".sha")
             if not sha_file.exists() or sha_file.read_bytes() != bytes.fromhex(cur):
                 return {"error": "No fresh GodMode9 dump of the system save "
                                  "(missing or stale homemenu_save.bin.sha). Run "
                                  "3DSort_dump in GodMode9, then Import from SD."}
         ext = self.workdir / "extract"
-        self.backups.create(ext, kind="auto", note=f"antes de escrever {n} mudancas",
+        self.backups.create(ext, kind="auto", note=f"before writing {n} changes",
                             extra=self._backup_extra())
         sav_path = ext / "user" / "SaveData.dat"
         sd = SaveData(sav_path.read_bytes())
-        # tema/configs (0x13B8+) sempre da versao ATUAL do cartao: o extract do
-        # workdir pode ser anterior a mudancas feitas no console (ex.: tema) e
-        # nem restore nem write podem regredi-las. Best-effort: sem SD legivel,
-        # escreve com o que temos.
+        # theme/settings (0x13B8+) always from the CURRENT card version: the
+        # workdir extract may predate changes made on the console (e.g. theme)
+        # and neither restore nor write may regress them. Best-effort: with no
+        # readable SD, write with what we have.
         try:
             import shutil
             fresh = self.workdir / "write_base"
@@ -599,15 +620,15 @@ class Api:
             sd.graft_tail((fresh / "user" / "SaveData.dat").read_bytes())
         except Exception:
             pass
-        # pastas primeiro: apply_order distribui posicoes pelo conteiner ATUAL
+        # folders first: apply_order distributes positions per the CURRENT container
         for slot, folder in st["folders"].items():
             sd.set_folder(int(slot), folder)
         sd.apply_order(list(st["order"]), reserved=self._reserved_now(st))
-        # sempre desembrulhar: 0 no array de status desfaz o gift box de todos
-        # os icones (mecanismo do Cthulhu); o console re-marca "novo" se quiser
+        # always unwrap: 0 in the status array undoes the gift box on every
+        # icon (Cthulhu's mechanism); the console re-marks "new" if it wants
         sd.set_all_status(0)
-        # gate 0B: pasta nova ganha nº de batismo = contador do Launcher atual
-        # (mesma fonte que _write_launcher incrementa; delete deixa orfao)
+        # gate 0B: a new folder gets its number = current Launcher counter
+        # (same source _write_launcher increments; delete leaves an orphan)
         new_fids = sorted(set(st["folder_defs"]) -
                           set(self._launcher_baseline["folder_defs"]))
         if new_fids and self._launcher_raw:
@@ -623,9 +644,9 @@ class Api:
         return self.get_state()
 
     def _write_launcher(self, st, n_changes: int):
-        """Edita o Launcher.dat dentro do container e publica no SD o payload de
-        injecao (homemenu_save_new.bin + .sha + scripts GM9). A NAND real so muda
-        quando o USUARIO rodar o script de injecao no GodMode9."""
+        """Edits the Launcher.dat inside the container and publishes the inject
+        payload to the SD (homemenu_save_new.bin + .sha + GM9 scripts). The real
+        NAND only changes when the USER runs the inject script in GodMode9."""
         import shutil
         save_id = self._nand_save_id()
         nand = self.save3ds.build_nand_tree(self.workdir, Path(self.container_path),
@@ -668,7 +689,7 @@ class Api:
             "sha": digest.hex(), "when": time.strftime("%Y-%m-%d %H:%M:%S"),
             "changes": n_changes}), encoding="utf-8")
 
-    # ---- injecao pendente (NAND) -------------------------------------------
+    # ---- pending inject (NAND) -------------------------------------------
     def _pending_path(self) -> Path:
         return self.workdir / "pending_inject.json"
 
@@ -679,8 +700,8 @@ class Api:
         return json.loads(p.read_text(encoding="utf-8"))
 
     def _check_inject_receipt(self) -> bool:
-        """Recibo do script GM9 confirma a injecao: promove o container gerado a
-        dump corrente e limpa o estado pendente."""
+        """The GM9 script receipt confirms the injection: promotes the generated
+        container to current dump and clears the pending state."""
         info = self._pending_inject_info()
         if not info or self.sd_root is None:
             return False
@@ -698,10 +719,10 @@ class Api:
 
     @staticmethod
     def _promote_payload(sd3: Path):
-        """O container gerado vira o dump corrente (verdade ESTRUTURAL). As
-        ancoras .sha sao descartadas de proposito: qualquer boot do HOME drifta
-        bytes volateis da NAND (Fase 0C), entao so um novo 3DSort_dump gera
-        ancora valida para a proxima escrita de launcher."""
+        """The generated container becomes the current dump (STRUCTURAL truth).
+        The .sha anchors are discarded on purpose: any HOME boot drifts volatile
+        NAND bytes (Phase 0C), so only a new 3DSort_dump produces a valid anchor
+        for the next launcher write."""
         import shutil
         payload = sd3 / "homemenu_save_new.bin"
         if payload.exists():
@@ -718,7 +739,7 @@ class Api:
                          "in GodMode9, then verify again."}
 
     def confirm_inject(self):
-        """Override manual: usuario garante que injetou sem recibo."""
+        """Manual override: the user vouches they injected without a receipt."""
         if self._pending_inject_info() is not None and self.sd_root is not None:
             sd3 = Path(self.sd_root) / "3DSort"
             self._promote_payload(sd3)
@@ -726,10 +747,10 @@ class Api:
         self._pending_path().unlink(missing_ok=True)
         return self.import_sd()
 
-    # ---- settings (drive do SD e pasta de backups) ---------------------------
+    # ---- settings (SD drive and backups folder) ---------------------------
     def _save_settings(self):
-        """Persiste as escolhas do usuario ao lado do workdir
-        (real: %USERPROFILE%/3DSort/settings.json; mock: tmp). build_api le."""
+        """Persists the user's choices next to the workdir
+        (real: %USERPROFILE%/3DSort/settings.json; mock: tmp). build_api reads it."""
         sp = Path(self.workdir).parent / "settings.json"
         sp.parent.mkdir(parents=True, exist_ok=True)
         sp.write_text(json.dumps({
@@ -739,7 +760,7 @@ class Api:
     def list_drives(self):
         roots = [str(p) for p in list_3ds_roots()]
         cur = str(self.sd_root) if self.sd_root else None
-        if cur and cur not in roots:  # ex.: sandbox fora da varredura D..P
+        if cur and cur not in roots:  # e.g. sandbox outside the D..P scan
             roots.insert(0, cur)
         return {"drives": [{"root": r, "current": r == cur} for r in roots]}
 
@@ -750,11 +771,11 @@ class Api:
         self.sd_root = p
         self.console = None
         self._save_settings()
-        return self.import_sd()  # re-deriva console, chaves, container, recibo
+        return self.import_sd()  # re-derives console, keys, container, receipt
 
     def pick_backups_dir(self):
-        """Abre o seletor de pasta nativo do Windows e aplica a escolha.
-        Cancelou = estado inalterado."""
+        """Opens the native Windows folder picker and applies the choice.
+        Cancelled = state unchanged."""
         path = pick_folder_native(str(self.backups.root))
         if not path:
             return self.get_state()
@@ -772,8 +793,8 @@ class Api:
 
 
 def pick_folder_native(initial: str) -> str | None:
-    """Dialogo nativo de pasta: pywebview quando ha janela; senao tkinter
-    (modo --serve, backend roda na mesma maquina do navegador)."""
+    """Native folder dialog: pywebview when there is a window; otherwise tkinter
+    (--serve mode, the backend runs on the same machine as the browser)."""
     try:
         import webview
         if webview.windows:
@@ -796,10 +817,10 @@ def pick_folder_native(initial: str) -> str | None:
         return None
 
 
-# ---- scripts GodMode9 (gerados por console: id0 e regiao conhecidos) --------
+# ---- GodMode9 scripts (generated per console: id0 and region are known) -----
 def gm9_dump_script(id0: str, save_id: str) -> str:
-    """Copia o system save do HOME menu para o SD. cp -h gera o .sha ao lado,
-    que e a ancora anti-obsolescencia do script de injecao."""
+    """Copies the HOME menu system save to the SD card. cp --hash writes the .sha
+    next to it, which is the staleness anchor for the inject script."""
     return f"""# 3DSort: dump the HOME menu system save and console keys to the SD card
 set SAVE "1:/data/{id0}/sysdata/{save_id}/00000000"
 cp --overwrite --no_cancel 1:/private/movable.sed 0:/3DSort/movable.sed
@@ -815,30 +836,30 @@ echo "Dumped save and keys. Edit the layout in 3DSort on the PC, then run 3DSort
 
 
 def gm9_inject_script(id0: str, save_id: str) -> str:
-    """Injeta o container editado. Cada sha e um gate duro: o script aborta no
-    primeiro que falhar, entao um estado inconsistente nunca chega a NAND."""
+    """Injects the edited container. Every sha is a hard gate: the script aborts
+    at the first failure, so an inconsistent state never reaches the NAND."""
     return f"""# 3DSort: inject the edited HOME menu system save into the NAND
 set SAVE "1:/data/{id0}/sysdata/{save_id}/00000000"
 ask "Write the 3DSort layout to the console NAND?"
-# gate 1: payload esta integro (a escrita do PC terminou)
+# gate 1: the payload is intact (the PC-side write finished)
 sha 0:/3DSort/homemenu_save_new.bin 0:/3DSort/homemenu_save_new.bin.sha
-# gate 2: a NAND continua exatamente como no dump (aborta se o HOME bootou no meio)
+# gate 2: the NAND is still exactly as dumped (aborts if the HOME menu booted in between)
 sha $[SAVE] 0:/3DSort/homemenu_save.bin.sha
 allow $[SAVE]
 cp --overwrite --no_cancel 0:/3DSort/homemenu_save_new.bin $[SAVE]
-# gate 3: a copia chegou bit-perfeita; so entao consertar o CMAC
+# gate 3: the copy arrived bit-perfect; only then fix the CMAC
 sha $[SAVE] 0:/3DSort/homemenu_save_new.bin.sha
 fixcmac $[SAVE]
-# recibo para o app confirmar a injecao no proximo import
+# receipt so the app can confirm the injection on the next import
 cp --overwrite --no_cancel 0:/3DSort/homemenu_save_new.bin.sha 0:/3DSort/inject_done.sha
 echo "Injected. You can boot the HOME menu now."
 """
 
 
-# ---- mock: mesma Api, crypto fake -------------------------------------------
+# ---- mock: same Api, fake crypto ---------------------------------------------
 class FakeSave3ds(Save3ds):
-    """Simula extract/import copiando uma arvore de extdata ja 'decriptada'.
-    No canal NAND, o 'container' mock e um arquivo cujos bytes SAO o Launcher.dat."""
+    """Simulates extract/import by copying an already 'decrypted' extdata tree.
+    On the NAND channel, the mock 'container' is a file whose bytes ARE the Launcher.dat."""
 
     def __init__(self, plain_dir: Path):
         self.plain = Path(plain_dir)
@@ -871,7 +892,7 @@ class FakeSave3ds(Save3ds):
 
 
 def _mock_icon(name, base):
-    """Icone 48x48 estilo prototipo: gradiente diagonal + monograma."""
+    """48x48 prototype-style icon: diagonal gradient + monogram."""
     from PIL import Image, ImageDraw, ImageFont
     dark = tuple(int(c * .62) for c in base)
     img = Image.new("RGB", (48, 48))
@@ -893,18 +914,18 @@ def _mock_icon(name, base):
     return img
 
 
-# apps NAND do mock: (nome, tid real, pos, pasta) — home 0-2 + 8, um dentro de pasta
+# mock NAND apps: (name, real tid, pos, folder): home 0-2 + 8, one inside a folder
 MOCK_NAND = [("System Settings", 0x0004001000021000, 0, -1),
              ("Mii Maker", 0x0004001000021700, 1, -1),
              ("Nintendo eShop", 0x0004001000021900, 2, -1),
              ("StreetPass Mii Plaza", 0x0004001000021800, 8, -1),
              ("Health & Safety", 0x0004001020021300, 0, 0)]
-MOCK_FOLDERS = [(0, 9, "Homebrew")]  # (id, pos do tile no home grid, nome)
-MOCK_CART_POS = 17                   # depois dos 12 jogos (3-7, 10-16)
+MOCK_FOLDERS = [(0, 9, "Homebrew")]  # (id, tile pos on the home grid, name)
+MOCK_CART_POS = 17                   # after the 12 games (3-7, 10-16)
 
 
 def make_mock_extdata(target: Path):
-    """Extdata sintetico: 12 jogos + SMDH dos apps NAND do mock no cache."""
+    """Synthetic extdata: 12 games + SMDH of the mock NAND apps in the cache."""
     from core.icons import MORTON, SMDH_ENTRY, SMDH_LARGE_OFF
     from core.savedata import OFF_FOLDER, OFF_POS, OFF_STATUS, OFF_TID, SIZE
 
@@ -964,7 +985,7 @@ def make_mock_extdata(target: Path):
 
 
 def make_mock_launcher(path: Path):
-    """Launcher.dat sintetico com os apps NAND e pastas do mock."""
+    """Synthetic Launcher.dat with the mock NAND apps and folders."""
     from core import launcher as ln
     buf = bytearray(ln.SIZE)
     struct.pack_into("<H", buf, ln.OFF_CART_POS, MOCK_CART_POS)
@@ -985,7 +1006,7 @@ def make_mock_launcher(path: Path):
         raw = name.encode("utf-16-le")
         buf[ln.OFF_FOLDER_NAME + fid * 0x22: ln.OFF_FOLDER_NAME + fid * 0x22 + len(raw)] = raw
     path.write_bytes(bytes(buf))
-    # par bin+sha como o cp --hash do GM9 deixa (ancora de dump fresco)
+    # bin+sha pair as GM9's cp --hash leaves it (fresh-dump anchor)
     Path(str(path) + ".sha").write_bytes(hashlib.sha256(bytes(buf)).digest())
 
 
@@ -995,13 +1016,13 @@ def build_api(mock: bool, sd_root: Path | None = None,
         tmp = Path(tempfile.mkdtemp(prefix="3dsort-mock-"))
         plain = tmp / "plain"
         make_mock_extdata(plain)
-        # arvore fake de SD para o fluxo real de find_console funcionar
+        # fake SD tree so the real find_console flow works
         fake_sd = tmp / "sd"
         (fake_sd / "Nintendo 3DS" / ("0" * 32) / ("1" * 32) / "extdata" /
          "00000000" / "0000008f").mkdir(parents=True)
         container = None
         if not no_launcher:
-            # container mock = bytes do Launcher.dat (ver FakeSave3ds)
+            # mock container = Launcher.dat bytes (see FakeSave3ds)
             container = tmp / "homemenu_save.bin"
             make_mock_launcher(container)
         return Api(FakeSave3ds(plain), fake_sd, tmp / "work", Backups(tmp / "backups"),
@@ -1012,7 +1033,7 @@ def build_api(mock: bool, sd_root: Path | None = None,
         settings = json.loads((APP_DIR / "settings.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         settings = {}
-    if sd_root is None and settings.get("sd_root"):  # CLI --sd vence o settings
+    if sd_root is None and settings.get("sd_root"):  # CLI --sd wins over settings
         sd_root = Path(settings["sd_root"])
     backups_root = Path(settings.get("backups_dir") or APP_DIR / "backups")
     sandbox_keys = ROOT / "sandbox" / "keys"
@@ -1022,7 +1043,7 @@ def build_api(mock: bool, sd_root: Path | None = None,
                                      APP_DIR / "Launcher.dat") if p.exists()), None)
         container = next((p for p in (sandbox_keys / "homemenu_save.bin",
                                       APP_DIR / "homemenu_save.bin") if p.exists()), None)
-    def key(name):  # fallback local; em runtime o SD tem precedencia (_resolve_keys)
+    def key(name):  # local fallback; at runtime the SD takes precedence (_resolve_keys)
         cands = (sandbox_keys / name, APP_DIR / name)
         return next((p for p in cands if p.exists()), cands[0])
     return Api(
@@ -1045,7 +1066,7 @@ def serve(api: Api, port: int):
             args = json.loads(body).get("args", []) if body else []
             try:
                 result = getattr(api, name)(*args)
-            except Exception as e:  # erro vira JSON, nao stacktrace no browser
+            except Exception as e:  # error becomes JSON, not a browser stacktrace
                 result = {"error": str(e)}
             data = json.dumps(result).encode()
             self.send_response(200)
@@ -1057,7 +1078,7 @@ def serve(api: Api, port: int):
         def log_message(self, *a):
             pass
 
-    print(f"3DSort dev em http://127.0.0.1:{port}")
+    print(f"3DSort dev at http://127.0.0.1:{port}")
     http.server.ThreadingHTTPServer(("127.0.0.1", port), H).serve_forever()
 
 

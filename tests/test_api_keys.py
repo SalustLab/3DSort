@@ -1,18 +1,18 @@
-"""Fluxo sem copia manual: o script de dump e publicado em todo import e o
-app resolve boot9/movable/container direto do SD (saida do 3DSort_dump)."""
+"""Zero-manual-copy flow: the dump script is published on every import and the
+app resolves boot9/movable/container straight from the SD (3DSort_dump output)."""
 from pathlib import Path
 
 from app import Api, build_api, gm9_dump_script
 from core.sdcard import Save3ds, find_console
 from core.store import Backups
 
-# movable sintetico com KeyY zero -> id0 conhecido (mesmo vetor de test_sdcard)
+# synthetic movable with zero KeyY -> known id0 (same vector as test_sdcard)
 MOVABLE = bytes(0x110) + bytes(16) + bytes(0x20)
 ID0 = "ff084737d59d71f775c89e9728d26cd5"
 
 
 def real_api(tmp_path, id0=ID0, **key_files):
-    """Api com Save3ds REAL (paths de fallback inexistentes) + SD sintetico."""
+    """Api with a REAL Save3ds (nonexistent fallback paths) + synthetic SD."""
     sd = tmp_path / "sd"
     (sd / "Nintendo 3DS" / id0 / ("b" * 32) / "extdata" / "00000000" /
      "0000008f").mkdir(parents=True)
@@ -26,7 +26,7 @@ def real_api(tmp_path, id0=ID0, **key_files):
     return api, s3, sd
 
 
-# ---- conteudo do script de dump ---------------------------------------------
+# ---- dump script contents ----------------------------------------------------
 
 def test_dump_script_dumps_all_needed_files():
     txt = gm9_dump_script("a" * 32, "0002008f")
@@ -35,14 +35,14 @@ def test_dump_script_dumps_all_needed_files():
     assert "M:/boot9.bin" in txt
     assert "0:/3DSort/boot9.bin" in txt
     assert "0:/3DSort/homemenu_save.bin" in txt
-    assert "--hash" in txt  # ancora .sha do container continua
+    assert "--hash" in txt  # container .sha anchor stays
 
 
-# ---- publicacao do script no import (mata o chicken-and-egg) ----------------
+# ---- script publishing on import (kills the chicken-and-egg) ----------------
 
 def test_import_publishes_dump_script_mock():
     api = build_api(mock=True)
-    api.get_state()  # dispara import_sd
+    api.get_state()  # triggers import_sd
     script = Path(api.sd_root) / "gm9" / "scripts" / "3DSort_dump.gm9"
     assert script.exists()
     txt = script.read_text(encoding="ascii")
@@ -52,11 +52,11 @@ def test_import_publishes_dump_script_mock():
 def test_import_publishes_dump_script_even_without_keys(tmp_path):
     api, _, sd = real_api(tmp_path)
     r = api.import_sd()
-    assert "3DSort_dump" in r["error"]  # erro amigavel, nao FileNotFoundError cru
+    assert "3DSort_dump" in r["error"]  # friendly error, not a raw FileNotFoundError
     assert (sd / "gm9" / "scripts" / "3DSort_dump.gm9").exists()
 
 
-# ---- resolucao de chaves via SD ----------------------------------------------
+# ---- key resolution via SD -----------------------------------------------------
 
 def test_keys_resolved_from_sd_3dsort(tmp_path):
     api, s3, sd = real_api(tmp_path, **{"3DSort/boot9.bin": b"9",
@@ -82,7 +82,7 @@ def test_sd_3dsort_beats_gm9_out(tmp_path):
 
 
 def test_movable_from_other_console_state_rejected(tmp_path):
-    # id0 da pasta nao bate com o id0 derivado do movable -> armadilha da chave velha
+    # folder id0 does not match the id0 derived from the movable -> old-key trap
     api, _, _ = real_api(tmp_path, id0="a" * 32,
                          **{"3DSort/boot9.bin": b"9", "3DSort/movable.sed": MOVABLE})
     err = api._resolve_keys()
@@ -92,4 +92,4 @@ def test_movable_from_other_console_state_rejected(tmp_path):
 def test_mock_ignores_key_resolution():
     api = build_api(mock=True)
     api.console = None
-    assert api._resolve_keys() is None  # FakeSave3ds nao usa chaves
+    assert api._resolve_keys() is None  # FakeSave3ds uses no keys

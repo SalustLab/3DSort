@@ -8,7 +8,7 @@ from core.icons import (
 
 
 def encode_icon(pixels, size=48):
-    """Inverso do decode: pixels[y][x] = (r,g,b) -> bytes RGB565 tiled/Morton."""
+    """Inverse of the decode: pixels[y][x] = (r,g,b) -> RGB565 bytes tiled/Morton."""
     out = bytearray()
     for ty in range(0, size, 8):
         for tx in range(0, size, 8):
@@ -65,9 +65,9 @@ def test_invalid_smdh_returns_none():
     assert smdh_short_name(b"\x00" * SMDH_ENTRY) is None
 
 
-# ---- entradas TWL (DSiWare, ex. TWiLight Menu++): banner NDS @ 0x378 -------
+# ---- TWL entries (DSiWare, e.g. TWiLight Menu++): NDS banner @ 0x378 -------
 def encode_twl_icon(pixels):
-    """Inverso do decode TWL: pixels[y][x] = indice 0-15 -> 4bpp tiled 8x8."""
+    """Inverse of the TWL decode: pixels[y][x] = index 0-15 -> 4bpp tiled 8x8."""
     out = bytearray()
     for ty in range(0, 32, 8):
         for tx in range(0, 32, 8):
@@ -80,7 +80,7 @@ def encode_twl_icon(pixels):
 
 
 def make_twl(name="TWiLight Menu++\nRocket Robz", pixels=None, palette=None):
-    e = bytearray(SMDH_ENTRY)  # sem magic SMDH
+    e = bytearray(SMDH_ENTRY)  # no SMDH magic
     struct.pack_into("<H", e, TWL_BANNER_OFF, 0x0103)
     if pixels:
         e[TWL_BANNER_OFF + 0x20: TWL_BANNER_OFF + 0x220] = encode_twl_icon(pixels)
@@ -97,16 +97,16 @@ def test_twl_short_name_first_line():
 
 
 def test_twl_icon_decodes_palette_and_transparency():
-    # paleta: 1 = vermelho puro RGB555, 2 = verde; indice 0 = transparente
+    # palette: 1 = pure red RGB555, 2 = green; index 0 = transparent
     pixels = [[1 if x < 16 else (0 if y < 16 else 2) for x in range(32)] for y in range(32)]
     b64 = twl_icon_png_b64(make_twl(pixels=pixels, palette=[0, 0x001F, 0x03E0]))
     import base64, io
     from PIL import Image
     img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGBA")
     assert img.size == (48, 48)
-    assert img.getpixel((0, 0)) == (255, 0, 0, 255)      # esquerda: vermelho
-    assert img.getpixel((47, 0))[3] == 0                 # dir. superior: transparente
-    assert img.getpixel((47, 47)) == (0, 255, 0, 255)    # dir. inferior: verde
+    assert img.getpixel((0, 0)) == (255, 0, 0, 255)      # left: red
+    assert img.getpixel((47, 0))[3] == 0                 # top right: transparent
+    assert img.getpixel((47, 47)) == (0, 255, 0, 255)    # bottom right: green
 
 
 def test_twl_rejects_smdh_and_garbage():

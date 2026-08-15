@@ -47,8 +47,8 @@ def test_clear_after_write():
 
 
 def test_backup_roundtrip_preserves_empty_dirs(tmp_path):
-    # extdata real tem boss/ (vazio no console do dev); import sem ele faz o
-    # HOME reconstruir o SaveData inteiro (statuses, tema, pastas) — Fase 0C
+    # real extdata has boss/ (empty on the dev console); an import without it makes
+    # the HOME rebuild the whole SaveData (statuses, theme, folders) - Phase 0C
     src = tmp_path / "extdata"
     (src / "user").mkdir(parents=True)
     (src / "user" / "SaveData.dat").write_bytes(b"AAA")
@@ -66,7 +66,7 @@ def test_backup_create_restore_and_history(tmp_path):
     (src / "user" / "SaveData.dat").write_bytes(b"AAA")
     (src / "icon").write_bytes(b"II")
     b = Backups(tmp_path / "backups")
-    ref = b.create(src, kind="auto", note="antes do write")
+    ref = b.create(src, kind="auto", note="before the write")
     (src / "user" / "SaveData.dat").write_bytes(b"BBB")
     entries = b.history()
     assert len(entries) == 1
