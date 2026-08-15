@@ -70,7 +70,9 @@ F:\Projects\3DSort\
     └── keys/{boot9.bin, movable.sed, essential.exefs}
 ```
 
-Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups}`.
+Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups,settings.json}`
+(settings.json = escolhas do usuario: sd_root e backups_dir; lido pelo build_api,
+`--sd` da CLI vence sem sobrescrever o arquivo).
 
 ## 3. Regras de segurança INEGOCIÁVEIS
 
@@ -90,7 +92,7 @@ Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups}`.
 ## 4. Como rodar
 
 ```powershell
-# testes (89; integração real é pulada sem sandbox/chaves; o guard do SD real
+# testes (106; integração real é pulada sem sandbox/chaves; o guard do SD real
 # re-registra a baseline quando tests/.real_sd_hash não existe)
 python -m pytest tests -q
 
@@ -153,9 +155,11 @@ Backups do GodMode9 podem conter **movable.sed obsoleto**:
 - **Fonte confiável**: dump direto no console — GodMode9 → `[1:] SYSNAND CTRNAND` →
   `private/movable.sed` → Copy to `0:/gm9/out`. boot9: GodMode9 → `[M:] MEMORY VIRTUAL` →
   `boot9.bin` (65536 bytes) → Copy.
-- O onboarding do app (Fase 4) deve instruir SEMPRE o dump direto, nunca aproveitar
-  backups antigos. Validar a chave contra o id0 da pasta antes de usar:
-  `core/sdcard.py::id0_from_movable` (promovido do scratchpad em 2026-08-14).
+- IMPLEMENTADO (2026-08-15): o `3DSort_dump.gm9` dumpa as chaves direto do console
+  (`1:/private/movable.sed` e `M:/boot9.bin` → `0:/3DSort/`) junto do container, e
+  `Api._resolve_keys` valida o movable contra o id0 da pasta em todo import
+  (`id0_from_movable`); chave de outro estado do console = erro pedindo re-dump.
+  O onboarding da Fase 4 só precisa apontar o script; nunca aproveitar backups antigos.
 
 ### 5.4 SaveData.dat (formato v4 — fonte: 3dbrew /wiki/Home_Menu)
 
@@ -300,6 +304,13 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   DESCARTA as âncoras de propósito. Ciclo de escrita do launcher sempre começa com
   dump fresco. Restore total pode fazer dump+inject na mesma sessão GM9 (gate 2 vira
   tautologia, aceitável só porque a intenção é sobrescrever tudo).
+- **Chaves sem cópia manual (2026-08-15)**: `3DSort_dump.gm9` é publicado em TODO
+  `import_sd` (não só na escrita — mata o chicken-and-egg do usuário novo) e dumpa,
+  além do container, `movable.sed` (de `1:/private/`) e `boot9.bin` (de `M:/`) em
+  `0:/3DSort/`. `Api._resolve_keys` procura boot9/movable em `<sd>/3DSort/` >
+  `<sd>/gm9/out/` > paths do `build_api` (`sandbox/keys/` > `%USERPROFILE%\3DSort\`),
+  valida o movable contra `console.id0` e devolve erro amigável (chaves ausentes ou
+  de outro estado do console) em vez do `FileNotFoundError` cru.
 - **Injeção**: o app publica `<sd>/3DSort/homemenu_save_new.bin` + `.sha` + scripts
   `<sd>/gm9/scripts/3DSort_{dump,inject}.gm9`. O inject tem gates sha duros (payload
   íntegro; NAND == dump original, aborta se o HOME bootou no meio; cópia bit-perfeita)
@@ -368,6 +379,16 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   no workdir. Falha no ramo launcher NÃO limpa o staging (retry idempotente).
   `verify_inject()`/`confirm_inject()` fecham o ciclo (recibo do GM9, §5.8).
   `import_sd()`: checa recibo, re-extrai e RESETA o staging.
+- Settings (2026-08-15): `list_drives()` → `{drives: [{root, current}]}` (varredura
+  D..P por `Nintendo 3DS/` + sd_root atual); `set_sd_root(path)` valida, re-importa
+  (staging resetado — mesma carta em letra nova é o caso comum, pending inject é
+  mantido); `set_backups_dir(path)` move zips + history.jsonl junto
+  (`Backups.move_root`). `pick_backups_dir()` abre o seletor de pasta NATIVO
+  (`pick_folder_native`: pywebview create_file_dialog quando há janela; senão
+  tkinter — o backend do --serve roda na mesma máquina do navegador) e aplica.
+  Ambos persistem em `settings.json` ao lado do workdir (mock = tmp, sem tocar a
+  máquina). Na UI: dropdown no chip do drive (varredura ~2ms) e o botão Change…
+  do Backup folder chama o dialogo nativo (SETTINGS).
 - `Staging` (core/store.py): snapshots imutáveis com deepcopy; `commit` limpa redo;
   `clear()` após write. `Backups`: zip `.3dsl` + `history.jsonl`, mantém últimos 20;
   `create(..., extra={arcname: bytes|Path})` guarda arquivos fora da árvore de extdata
@@ -457,6 +478,19 @@ colisão real de pasta, §5.4); incidente do `boss/` no restore (§5.6) corrigid
 disciplina da âncora de inject (§5.8: dump fresco obrigatório, promote descarta
 âncoras); buracos livres com launcher (§5.4); desembrulho automático em todo write
 (§5.4, Cthulhu); tema preservado via graft (§5.4). 89 testes.
+
+**Feito (2026-08-15, tarde)**: fluxo sem cópia manual (§5.3/§5.8): `3DSort_dump.gm9`
+publicado em todo import e dumpando container + movable.sed + boot9.bin em
+`0:/3DSort/`; `Api._resolve_keys` (SD > gm9/out > sandbox/APP_DIR, com validação
+de id0 e erros amigáveis). VALIDADO NO CONSOLE REAL no mesmo dia: `3DSort_dump`
+novo rodado no GM9 deixou movable.sed (320B), boot9.bin (64KB) e container+.sha
+em `0:/3DSort/`; id0 do movable bateu com a pasta; o app resolveu as chaves do
+próprio SD (`G:\3DSort\`). 98 testes (novos em `tests/test_api_keys.py`).
+
+**Feito (2026-08-15, SETTINGS)**: linhas "SD card drive" e "Backup folder" funcionais
+(§6: list_drives/set_sd_root/set_backups_dir + settings.json; UI com dropdown e
+modal; import re-autodetecta drive se a letra persistida sumiu). 106 testes
+(novos em `tests/test_api_settings.py`). Validado em tela (mock, Playwright).
 
 **GATES DE HARDWARE (CONCLUÍDOS em 2026-08-14/15)**:
 - Fase 0B: FEITA em 2026-08-14 (ver §5.7). Veredito: create/delete SHIPA. Patch de

@@ -54,16 +54,24 @@ def find_console(sd_root: Path) -> Console:
     raise FileNotFoundError(f"extdata do HOME menu nao encontrado em {n3ds}")
 
 
-def find_sd_drive() -> Path | None:
-    """Varre drives montados atras de um SD de 3DS."""
-    for letter in "DEFGHIJKLMNOP":
-        root = Path(f"{letter}:/")
+def list_3ds_roots(candidates=None) -> list[Path]:
+    """Candidatos (default: drives D..P) que contem uma pasta 'Nintendo 3DS'."""
+    if candidates is None:
+        candidates = [Path(f"{letter}:/") for letter in "DEFGHIJKLMNOP"]
+    out = []
+    for root in candidates:
         try:
-            if (root / "Nintendo 3DS").is_dir():
-                return root
+            if (Path(root) / "Nintendo 3DS").is_dir():
+                out.append(Path(root))
         except OSError:
             continue
-    return None
+    return out
+
+
+def find_sd_drive() -> Path | None:
+    """Varre drives montados atras de um SD de 3DS."""
+    roots = list_3ds_roots()
+    return roots[0] if roots else None
 
 
 class Save3ds:

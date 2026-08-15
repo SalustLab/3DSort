@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 
 from core.sdcard import (find_console, HOME_EXTDATA_IDS, NAND_SAVE_IDS,
-                         Save3ds, id0_from_movable)
+                         Save3ds, id0_from_movable, list_3ds_roots)
 
 SANDBOX = Path(__file__).parent.parent / "sandbox"
 
@@ -36,6 +36,15 @@ def test_find_console_no_home_extdata(tmp_path):
     sd = make_sd(tmp_path, extdata_id="000002cd")  # so extdata de tema
     with pytest.raises(FileNotFoundError):
         find_console(sd)
+
+
+def test_list_3ds_roots_filters_candidates(tmp_path):
+    a = tmp_path / "a"
+    (a / "Nintendo 3DS").mkdir(parents=True)
+    b = tmp_path / "b"
+    b.mkdir()
+    roots = list_3ds_roots([a, b, tmp_path / "missing"])
+    assert roots == [a]
 
 
 def test_home_extdata_ids_cover_regions():
