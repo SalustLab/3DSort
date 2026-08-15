@@ -46,7 +46,7 @@ then write the result back and boot the console.
 
 ## Writing and backups
 
-![The SYNC tab: SD card status, import and backup buttons, restorable history](docs/images/sync.png)
+![The SYNC tab: SD card status, import and backup buttons, and a restorable history of every write](docs/images/sync.png)
 
 Moving system apps and folders needs one extra step, because their layout
 lives in a NAND system save rather than on the card: dump it once with the
@@ -169,8 +169,8 @@ end to end on real hardware. The app never writes without an automatic backup
 and an explicit confirmation. Still, it has only been exercised on one console
 so far, so keep your own backups.
 
-The grid screenshot shows a real console library read off an SD card. The other
-screenshots use the app's synthetic demo data.
+The grid and sync screenshots come from a real console's SD card. The setup and
+instructions screenshots use the app's demo data.
 
 ## License
 
