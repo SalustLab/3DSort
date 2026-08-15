@@ -20,7 +20,7 @@ by page. 3DSort edits the layout directly on the SD card instead. Put the card
 in your computer, drag things around in a desktop app, check the live preview,
 then write the result back and boot the console.
 
-![The GRID tab: live console preview on the left, drag-and-drop grid on the right](docs/images/grid.png)
+![The GRID tab: live console preview on the left, drag-and-drop grid of real game icons on the right](docs/images/grid.png)
 
 > [!IMPORTANT]
 > Every write takes an automatic backup first, and nothing touches the card
@@ -169,8 +169,8 @@ end to end on real hardware. The app never writes without an automatic backup
 and an explicit confirmation. Still, it has only been exercised on one console
 so far, so keep your own backups.
 
-Screenshots on this page use the app's synthetic demo data, not a real console
-library.
+The grid screenshot shows a real console library read off an SD card. The other
+screenshots use the app's synthetic demo data.
 
 ## License
 
