@@ -114,6 +114,9 @@ function playFlip(before) {
 }
 
 function render() {
+  if (P.tab === "RULES" || P.tab === "THEMES") {
+    P.tab = "GRID"; savePrefs(); toast("Coming in a future version");
+  }
   renderTop();
   const before = captureGrid();
   const el = document.getElementById("screen");
@@ -127,7 +130,7 @@ function render() {
 }
 
 function renderTop() {
-  document.getElementById("tabs").innerHTML = ["GRID", "RULES", "THEMES", "SYNC"].map(t =>
+  document.getElementById("tabs").innerHTML = ["GRID", "SYNC"].map(t =>
     `<div class="tab ${P.tab === t ? "on" : ""}" data-tab="${t}">${t}</div>`).join("");
   const n = S.staged.length;
   document.getElementById("writeBtn").textContent = n ? `WRITE (${n}) ▸` : "WRITE ▸";
@@ -275,8 +278,6 @@ function gridScreen() {
       <div class="sortchip" id="sortChip">⇅ Sort: ${esc(P.sortMode)} <span style="color:var(--mut)">▾</span>
         ${P.sortMenu ? `<div class="menu" id="sortMenu">
           <div data-preset="az">A → Z</div><div data-preset="za">Z → A</div>
-          <div class="divider"></div>
-          <div class="rules-link" data-goto-rules>Auto-sort rules… ▸</div>
         </div>` : ""}
       </div>
     </div>
@@ -552,8 +553,6 @@ function bind() {
       P.sortMode = e.target.textContent;
       savePrefs();
       refresh("sort_preset", [preset]).then(() => toast("Sorted (staged)"));
-    } else if (e.target.dataset && e.target.dataset.gotoRules !== undefined) {
-      P.sortMenu = false; P.tab = "RULES"; P.openFolder = null; savePrefs(); render();
     } else { P.sortMenu = !P.sortMenu; render(); }
   };
   if ($("closeFolder")) $("closeFolder").onclick = () => { P.openFolder = null; render(); };
