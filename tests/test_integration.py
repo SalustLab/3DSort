@@ -64,6 +64,27 @@ def test_roundtrip_edit_import_reextract(sd, s3, tmp_path):
         assert (ver / rel).read_bytes() == (ext / rel).read_bytes()
 
 
+nand_ready = ready and (KEYS / "homemenu_save.bin").exists() and (KEYS / "Launcher.dat").exists()
+
+
+@pytest.mark.skipif(not nand_ready, reason="container do system save ausente")
+def test_nandsave_roundtrip_on_copy(s3, tmp_path):
+    """Canal --nandsave: extract == dump GM9; import + re-extract preserva tudo.
+    Roda so sobre copia tmp do container; NAND real jamais e tocada por aqui."""
+    nand = s3.build_nand_tree(tmp_path, KEYS / "homemenu_save.bin", "0002008f")
+    out1 = tmp_path / "out1"
+    s3.nand_extract("0002008f", nand, out1)
+    assert (out1 / "Launcher.dat").read_bytes() == (KEYS / "Launcher.dat").read_bytes()
+    s3.nand_import("0002008f", nand, out1)
+    out2 = tmp_path / "out2"
+    s3.nand_extract("0002008f", nand, out2)
+    files1 = sorted(p.relative_to(out1) for p in out1.rglob("*") if p.is_file())
+    files2 = sorted(p.relative_to(out2) for p in out2.rglob("*") if p.is_file())
+    assert files1 == files2
+    for rel in files1:
+        assert (out1 / rel).read_bytes() == (out2 / rel).read_bytes()
+
+
 def test_real_sd_untouched_guard():
     """Nenhum teste altera o SD real: hash do extdata em G: e comparado no inicio/fim da sessao."""
     real = Path("G:/Nintendo 3DS")
