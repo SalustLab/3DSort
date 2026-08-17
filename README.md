@@ -70,6 +70,12 @@ nothing is lost.
   the app writes a `3DSort_dump` script to the card and that script dumps them
   for you, along with the HOME menu save
 
+Regions: JPN, USA and EUR are supported and tested on real hardware. CHN, KOR
+and TWN are supported from documented ids but have never been run on a console,
+so treat them as untested. A region the app does not know refuses to dump rather
+than guessing, and every write to the console NAND is gated by checksums that
+abort on a mismatch.
+
 <div align="center">
 <img src="docs/images/wizard.png" alt="First-run setup: the app walks you through dumping the console data" width="720">
 </div>
