@@ -343,6 +343,31 @@ def test_write_launcher_dirty_publishes_payload_and_verifies():
     assert (sd3 / "homemenu_save.bin").exists() and not payload.exists()
 
 
+def test_consumed_inject_script_is_removed(monkeypatch):
+    """Real trap (2026-08-16, user's console): after the payload is consumed the
+    inject script stayed on the card pointing at a file that no longer exists.
+    Running it later aborted at gate 1, which reads as 'the write broke' when in
+    fact nothing was pending. A script must never outlive its payload."""
+    scripts_of = lambda api: Path(api.sd_root) / "gm9" / "scripts" / "3DSort_inject.gm9"
+
+    for closer in ("verify_inject", "confirm_inject"):
+        api = build_api(mock=True)
+        api.get_state()
+        api.swap_items(SETTINGS, FOLDER)
+        api.write_sd()
+        sd3 = Path(api.sd_root) / "3DSort"
+        payload = sd3 / "homemenu_save_new.bin"
+        assert scripts_of(api).exists(), closer
+        if closer == "verify_inject":
+            (sd3 / "inject_done.sha").write_bytes(
+                hashlib.sha256(payload.read_bytes()).digest())
+        getattr(api, closer)()
+        assert not payload.exists(), closer
+        assert not scripts_of(api).exists(), f"{closer} left an orphan inject script"
+        # the dump script stays: it is what the user needs next
+        assert (Path(api.sd_root) / "gm9" / "scripts" / "3DSort_dump.gm9").exists()
+
+
 def test_cancel_inject_clears_pending_and_payload():
     """Cancel discards the published payload and the inject script. The mock
     container lives in tmp, so the 'forces a fresh dump' part (deleting

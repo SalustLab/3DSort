@@ -65,7 +65,10 @@ class Api:
             self.sd_root = find_sd_drive() or self.sd_root
         if self.sd_root is None:
             return {"error": "3DS SD card not found"}
-        self.console = find_console(self.sd_root)
+        # the movable dumped on the card names the console that owns it: it is the
+        # only way to tell the live id0 from leftovers of older states/consoles
+        sd_id0 = self._sd_movable_id0()
+        self.console = find_console(self.sd_root, prefer_id0=sd_id0)
         # script goes to the SD BEFORE requiring keys: the dump itself is what
         # brings boot9/movable/container for the app to read (no manual copy)
         self._publish_dump_script()
@@ -136,8 +139,20 @@ class Api:
         scripts = Path(self.sd_root) / "gm9" / "scripts"
         scripts.mkdir(parents=True, exist_ok=True)
         (scripts / "3DSort_dump.gm9").write_text(
-            gm9_dump_script(self.console.id0, self._nand_save_id()),
-            encoding="ascii", newline="\n")
+            gm9_dump_script(), encoding="ascii", newline="\n")
+
+    def _sd_key_file(self, name: str) -> Path | None:
+        """Key dumped on the card by 3DSort_dump (0:/3DSort), then the gm9 output
+        folder. Nothing here when the user has not run the script yet."""
+        if self.sd_root is None:
+            return None
+        dirs = (Path(self.sd_root) / "3DSort", Path(self.sd_root) / "gm9" / "out")
+        return next((d / name for d in dirs if (d / name).is_file()), None)
+
+    def _sd_movable_id0(self) -> str | None:
+        """id0 of the console that owns the movable.sed sitting on the card."""
+        movable = self._sd_key_file("movable.sed")
+        return id0_from_movable(movable.read_bytes()) if movable else None
 
     def _resolve_keys(self) -> str | None:
         """Resolves boot9/movable: the SD (0:/3DSort from the dump, then gm9/out)
@@ -146,12 +161,10 @@ class Api:
         message or None."""
         if getattr(self.save3ds, "boot9", None) is None:  # mock uses no keys
             return None
-        if self.sd_root is not None:
-            dirs = (Path(self.sd_root) / "3DSort", Path(self.sd_root) / "gm9" / "out")
-            for name, attr in (("boot9.bin", "boot9"), ("movable.sed", "movable")):
-                hit = next((d / name for d in dirs if (d / name).is_file()), None)
-                if hit is not None:
-                    setattr(self.save3ds, attr, hit)
+        for name, attr in (("boot9.bin", "boot9"), ("movable.sed", "movable")):
+            hit = self._sd_key_file(name)
+            if hit is not None:
+                setattr(self.save3ds, attr, hit)
         missing = [n for n, p in (("boot9.bin", self.save3ds.boot9),
                                   ("movable.sed", self.save3ds.movable))
                    if not Path(p).exists()]
@@ -162,9 +175,14 @@ class Api:
         if (self.console is not None and
                 id0_from_movable(Path(self.save3ds.movable).read_bytes())
                 != self.console.id0):
-            return ("movable.sed does not match this SD card (key from an older "
-                    "console state?). Re-dump it in GodMode9 (run 3DSort_dump), "
-                    "then Import from SD again.")
+            # find_console already preferred the folder matching this movable, so
+            # reaching here means the console owning the key has no folder on the
+            # card at all: either the key is stale, or the console never booted the
+            # HOME menu with this card inserted (nothing to read yet).
+            return ("movable.sed does not match this SD card. If this console is new "
+                    "to the card, boot the HOME menu once with it inserted, then "
+                    "Import from SD again. Otherwise the key is from an older console "
+                    "state: re-dump it in GodMode9 (run 3DSort_dump).")
         return None
 
     def _find_container(self) -> Path | None:
@@ -186,15 +204,22 @@ class Api:
         cont = self._find_container()
         if cont is not None:
             import shutil
-            self.container_path = cont
             nand = self.save3ds.build_nand_tree(self.workdir, cont, self._nand_save_id())
             out = self.workdir / "launcher_read"
             if out.exists():
                 shutil.rmtree(out)
-            self.save3ds.nand_extract(self._nand_save_id(), nand, out)
-            self._container_sha = hashlib.sha256(cont.read_bytes()).hexdigest()
-            self._launcher_writable = True
-            return (out / "Launcher.dat").read_bytes()
+            try:
+                self.save3ds.nand_extract(self._nand_save_id(), nand, out)
+            except RuntimeError:
+                # container from another console (or another console state): its CMAC
+                # does not verify with the current keys. The SD layout is still fine,
+                # so degrade to the read-only fallback instead of failing the import.
+                self.container_path = None
+            else:
+                self.container_path = cont
+                self._container_sha = hashlib.sha256(cont.read_bytes()).hexdigest()
+                self._launcher_writable = True
+                return (out / "Launcher.dat").read_bytes()
         if self.launcher_path and Path(self.launcher_path).exists():
             return Path(self.launcher_path).read_bytes()
         return None
@@ -741,18 +766,26 @@ class Api:
         self._pending_path().unlink(missing_ok=True)
         return True
 
-    @staticmethod
-    def _promote_payload(sd3: Path):
+    def _promote_payload(self, sd3: Path):
         """The generated container becomes the current dump (STRUCTURAL truth).
         The .sha anchors are discarded on purpose: any HOME boot drifts volatile
         NAND bytes (Phase 0C), so only a new 3DSort_dump produces a valid anchor
-        for the next launcher write."""
+        for the next launcher write. The inject script goes with them: once the
+        payload is consumed the script points at a file that no longer exists, and
+        running it later aborts at gate 1 as if a write had broken (real report,
+        2026-08-16)."""
         import shutil
         payload = sd3 / "homemenu_save_new.bin"
         if payload.exists():
             shutil.move(str(payload), sd3 / "homemenu_save.bin")
         (sd3 / "homemenu_save_new.bin.sha").unlink(missing_ok=True)
         (sd3 / "homemenu_save.bin.sha").unlink(missing_ok=True)
+        self._delete_inject_script()
+
+    def _delete_inject_script(self):
+        if self.sd_root is not None:
+            (Path(self.sd_root) / "gm9" / "scripts" /
+             "3DSort_inject.gm9").unlink(missing_ok=True)
 
     def verify_inject(self):
         if self._pending_inject_info() is None:
@@ -783,8 +816,7 @@ class Api:
             for name in ("homemenu_save_new.bin", "homemenu_save_new.bin.sha",
                          "homemenu_save.bin.sha", "inject_done.sha"):
                 (sd3 / name).unlink(missing_ok=True)
-            (Path(self.sd_root) / "gm9" / "scripts" /
-             "3DSort_inject.gm9").unlink(missing_ok=True)
+            self._delete_inject_script()
         # Marker last: _find_container prefers the payload while it exists.
         self._pending_path().unlink(missing_ok=True)
         return self.import_sd()
@@ -859,16 +891,28 @@ def pick_folder_native(initial: str) -> str | None:
         return None
 
 
-# ---- GodMode9 scripts (generated per console: id0 and region are known) -----
-def gm9_dump_script(id0: str, save_id: str) -> str:
+# ---- GodMode9 scripts ------------------------------------------------------
+# The dump script resolves the console itself ($[SYSID0]/$[REGION]) because it runs
+# before the app knows anything: a card can carry leftover id0 folders from older
+# consoles, and a script baked with the wrong one sends GodMode9 to a NAND path that
+# does not exist. The inject script is still generated per console: by then the keys
+# are validated against the right id0, and its sha gates abort on a mismatch anyway.
+def gm9_dump_script() -> str:
     """Copies the HOME menu system save to the SD card. cp --hash writes the .sha
     next to it, which is the staleness anchor for the inject script."""
+    branches = "".join(
+        f'{"if" if i == 0 else "elif"} chk $[REGION] "{region}"\n\tset SAVEID "{save_id}"\n'
+        for i, (region, save_id) in enumerate(NAND_SAVE_IDS.items()))
     return f"""# 3DSort: dump the HOME menu system save and console keys to the SD card
-set SAVE "1:/data/{id0}/sysdata/{save_id}/00000000"
+{branches}else
+\techo "Console region $[REGION] is not supported by 3DSort yet."
+\tgoto End
+end
+set SAVE "1:/data/$[SYSID0]/sysdata/$[SAVEID]/00000000"
 cp --overwrite --no_cancel 1:/private/movable.sed 0:/3DSort/movable.sed
 cp --overwrite --no_cancel M:/boot9.bin 0:/3DSort/boot9.bin
 if not exist $[SAVE]
-\techo "HOME menu save not found. Wrong console or region?"
+\techo "HOME menu save not found ($[REGION]). Is this SysNAND, not EmuNAND?"
 \tgoto End
 end
 cp --hash --overwrite --no_cancel $[SAVE] 0:/3DSort/homemenu_save.bin

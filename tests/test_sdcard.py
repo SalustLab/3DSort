@@ -29,6 +29,24 @@ def test_find_console_eur(tmp_path):
     assert c.region == "EUR"
 
 
+def test_find_console_prefers_matching_id0(tmp_path):
+    """A card used on more than one console (or console state) keeps several id0
+    folders. Without a hint the first one wins, which may be a dead leftover, so
+    the caller passes the id0 derived from the movable it holds."""
+    dead, live = "1" * 32, "4" * 32
+    make_sd(tmp_path, id0=dead)
+    make_sd(tmp_path, id0=live)
+    assert find_console(tmp_path, prefer_id0=live).id0 == live
+    assert find_console(tmp_path, prefer_id0=dead).id0 == dead
+
+
+def test_find_console_ignores_unknown_prefer_id0(tmp_path):
+    """An id0 with no folder on the card falls back to the plain first match:
+    reporting the mismatch is the caller's job (it knows where the key came from)."""
+    make_sd(tmp_path, id0="a" * 32)
+    assert find_console(tmp_path, prefer_id0="c" * 32).id0 == "a" * 32
+
+
 def test_find_console_missing(tmp_path):
     with pytest.raises(FileNotFoundError):
         find_console(tmp_path)
