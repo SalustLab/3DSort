@@ -92,8 +92,30 @@ def test_list_3ds_roots_uses_default_candidates(tmp_path, monkeypatch):
     assert list_3ds_roots() == [mount]
 
 
+ALL_REGIONS = {"JPN", "USA", "EUR", "CHN", "KOR", "TWN"}
+
+
 def test_home_extdata_ids_cover_regions():
-    assert set(HOME_EXTDATA_IDS.values()) == {"JPN", "USA", "EUR"}
+    assert set(HOME_EXTDATA_IDS.values()) == ALL_REGIONS
+
+
+def test_every_extdata_id_has_a_system_save_id():
+    """The GM9 dump script reads the region off the console and looks the save id
+    up here: an extdata id without its NAND counterpart would send GodMode9 to
+    sysdata//00000000."""
+    assert set(NAND_SAVE_IDS) == ALL_REGIONS
+    for eid, region in HOME_EXTDATA_IDS.items():
+        # same region number, 0002 prefix (holds on JPN/USA/EUR, all hardware-checked)
+        assert NAND_SAVE_IDS[region] == "0002" + eid[4:], region
+
+
+def test_find_console_accepts_an_uppercase_extdata_folder(tmp_path):
+    """3dbrew and the hacks guide spell these ids in uppercase. Only 8f has a
+    letter among the regions we had, so a case-sensitive lookup went unnoticed
+    until CHN/KOR/TWN (a1/a9/b1) arrived."""
+    c = find_console(make_sd(tmp_path, extdata_id="000000A1"))
+    assert c.region == "CHN"
+    assert c.extdata_id == "00000000000000a1"   # save3ds wants it lowercase
 
 
 @pytest.mark.skipif(not (SANDBOX / "keys" / "essential.exefs").exists(),
@@ -130,9 +152,12 @@ def test_id0_from_real_movable_matches_console():
     assert id0_from_movable(movable) in id0_dirs
 
 
-def test_nand_save_ids_cover_regions():
-    assert set(NAND_SAVE_IDS) == {"JPN", "USA", "EUR"}
+def test_nand_save_ids_hardware_checked_values():
+    """Coverage lives in test_every_extdata_id_has_a_system_save_id. These three
+    are the ones actually read off a console, so they are pinned literally."""
     assert NAND_SAVE_IDS["USA"] == "0002008f"
+    assert NAND_SAVE_IDS["JPN"] == "00020082"
+    assert NAND_SAVE_IDS["EUR"] == "00020098"
 
 
 def test_build_nand_tree_layout(tmp_path):

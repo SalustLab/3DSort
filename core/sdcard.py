@@ -14,9 +14,14 @@ SAVE3DS_NAME = "save3ds_fuse.exe" if sys.platform == "win32" else "save3ds_fuse"
 _RUN_KW = ({"creationflags": subprocess.CREATE_NO_WINDOW}
            if sys.platform == "win32" else {})
 
-HOME_EXTDATA_IDS = {"00000082": "JPN", "0000008f": "USA", "00000098": "EUR"}
-# HOME menu system save on the NAND (Launcher.dat lives inside it), per region
-NAND_SAVE_IDS = {"JPN": "00020082", "USA": "0002008f", "EUR": "00020098"}
+# HOME menu SD extdata, per region. JPN/USA/EUR are confirmed on real hardware;
+# CHN/KOR/TWN come from 3dbrew and the hacks guide (3ds.hacks.guide, "clearing
+# HOME Menu extdata") and have never been tried on a console here.
+HOME_EXTDATA_IDS = {"00000082": "JPN", "0000008f": "USA", "00000098": "EUR",
+                    "000000a1": "CHN", "000000a9": "KOR", "000000b1": "TWN"}
+# HOME menu system save on the NAND (Launcher.dat lives inside it), per region:
+# the same region number under the 0002 prefix.
+NAND_SAVE_IDS = {region: "0002" + eid[4:] for eid, region in HOME_EXTDATA_IDS.items()}
 
 
 def id0_from_movable(movable: bytes) -> str:
@@ -37,8 +42,16 @@ class Console:
 
     @property
     def extdata_dir(self) -> Path:
-        return (self.sd_root / "Nintendo 3DS" / self.id0 / self.id1 /
-                "extdata" / "00000000" / self.extdata_id[-8:])
+        root = (self.sd_root / "Nintendo 3DS" / self.id0 / self.id1 /
+                "extdata" / "00000000")
+        want = self.extdata_id[-8:]
+        # the folder may be spelled in either case; case-insensitive filesystems
+        # do not care, but the backup would miss it on Linux
+        if root.is_dir():
+            hit = next((e for e in root.iterdir() if e.name.lower() == want), None)
+            if hit is not None:
+                return hit
+        return root / want
 
 
 def find_console(sd_root: Path, prefer_id0: str | None = None) -> Console:
@@ -62,8 +75,11 @@ def find_console(sd_root: Path, prefer_id0: str | None = None) -> Console:
             ext_root = id1 / "extdata" / "00000000"
             if not ext_root.is_dir():
                 continue
+            # the ids are written uppercase in the docs and lowercase by the
+            # console, so match on the folders present rather than on casing
+            present = {e.name.lower(): e for e in ext_root.iterdir() if e.is_dir()}
             for eid, region in HOME_EXTDATA_IDS.items():
-                if (ext_root / eid).is_dir():
+                if eid in present:
                     c = Console(sd_root, id0.name, id1.name, region, "00000000" + eid)
                     if prefer_id0 is not None and c.id0 == prefer_id0:
                         return c
