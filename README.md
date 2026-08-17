@@ -178,7 +178,7 @@ original container stays on the card for recovery.
 
 Beta. The core is covered by 151 tests, including round trips against a copy of
 a real card, and the full cycle (write, NAND inject, restore) has been validated
-end to end on two different consoles from two different regions (N3DS JPN, N3DSXL USA). The app never writes without an automatic
+end to end on two different consoles from one region (N3DS, N3DSXL both USA). The app never writes without an automatic
 backup and an explicit confirmation.
 
 ## License
