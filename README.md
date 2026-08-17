@@ -18,8 +18,7 @@
 > [!NOTE]
 > **Built with AI assistance.** Much of this code was written with Claude. The
 > 3DS file formats were reverse engineered against real dumps, and every write
-> path was validated on real consoles before release. Read the code, check the
-> tests, judge it on whether it works.
+> path was validated on real consoles before release.
 
 Organizing icons on the console itself is slow: one stylus drag at a time, page
 by page. 3DSort edits the layout directly on the SD card instead. Put the card
