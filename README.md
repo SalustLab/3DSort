@@ -100,6 +100,30 @@ formatted or system-transferred since that backup, the old key will not decrypt
 the current card. The app checks for this and says so, rather than failing with
 a cryptic error.
 
+## The Windows SmartScreen warning
+
+The first time you run the downloaded `.exe`, Windows says it "prevented an
+unrecognized app from starting". Click **More info**, then **Run anyway**.
+
+Nothing is wrong with the file. SmartScreen shows that for any executable
+without a code signing certificate, which costs a few hundred dollars a year
+and buys nothing for a portable homebrew tool. The warning is about reputation,
+not about what the app does.
+
+If you want to check the download yourself, compare the hash against the one
+published with the release:
+
+```
+Get-FileHash 3DSort.exe -Algorithm SHA256
+```
+
+```
+v1.1.0  E0B53E67D8A88F40E00CB3687ACF1E035C8F2D6A779F9B9D822786093F56D0CF
+```
+
+Building it yourself from source skips the warning entirely, since the exe then
+comes from your own machine.
+
 ## Running from source
 
 ```
