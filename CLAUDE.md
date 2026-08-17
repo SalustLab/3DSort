@@ -1,9 +1,9 @@
 # CLAUDE.md — 3DSort
 
 Contexto estático para desenvolvimento assistido por IA. Leia antes de qualquer mudança.
-Última revisão: 2026-08-15 (Fase 4 FEITA: exe PyInstaller com selftest, onboarding
-guiado, aba INSTRUCTIONS, cancel_inject, fontes offline, código pronto para Linux;
-gates de hardware 0B/0C validados no console real, ver §10).
+Última revisão: 2026-08-16 (suporte a CARTÃO MULTI-CONSOLE: id0 desempatado pelo
+movable, script de dump console-agnóstico, container alheio degrada para read-only,
+ver §5.1/§5.8/§10. Antes: Fase 4 e gates de hardware 0B/0C, §10).
 
 ## 1. O que é o projeto
 
@@ -111,8 +111,10 @@ Dados de runtime do app instalado: `%USERPROFILE%\3DSort\{work,backups,settings.
 ## 4. Como rodar
 
 ```powershell
-# testes (128; integração real é pulada sem sandbox/chaves; o guard do SD real
-# re-registra a baseline quando tests/.real_sd_hash não existe)
+# testes (148; integração real é pulada sem sandbox/chaves; o guard do SD real
+# registra uma baseline POR PASTA id0 e só compara as que já conhece. ATENÇÃO: um
+# write LEGÍTIMO pelo app também dispara o guard — conferir os timestamps do extdata
+# contra o history.jsonl dos backups antes de culpar um teste, depois re-registrar)
 python -m pytest tests -q
 
 # UI no navegador com dados reais do sandbox (modo de desenvolvimento padrão)
@@ -154,6 +156,11 @@ SD:\Nintendo 3DS\<id0 32 hex>\<id1 32 hex>\
 
 - extdata do HOME menu por região: **JPN `00000082` · USA `0000008f` · EUR `00000098`**
   (mapa em `core/sdcard.py::HOME_EXTDATA_IDS`). O console do dev é **USA**.
+- **UM CARTÃO PODE TER VÁRIOS id0** (aprendido em 2026-08-16, §10): usado em mais de um
+  console, ou mantido através de um formato de sistema, o SD acumula pastas id0 órfãs
+  INDISTINGUÍVEIS da viva (todas com extdata do HOME). `find_console(sd, prefer_id0=)`
+  desempata pelo `id0_from_movable` do `movable.sed` do próprio cartão
+  (`Api._sd_movable_id0`); sem dica, primeira encontrada. Nunca assumir id0 único.
 - Após decriptação via save3ds, o extdata vira: `user/SaveData.dat`, `user/Cache.dat`,
   `user/CacheD.dat`, `icon`, `boss/`.
 
@@ -215,7 +222,13 @@ Tamanho exato `0x2DA0`. Offsets implementados em `core/savedata.py`:
   desembrulhou 5 ícones com SaveData/Cache byte-intocados). Cosmético, some ao abrir
   o título; não caçar mais. Pós-write o console também pode REORDENAR itens novos
   dentro de pasta (permuta tid↔slot content-preserving) e ajustar status de slots
-  vazios — diffs assim são normais, tolerar.
+  vazios — diffs assim são normais, tolerar. **Confirmado também no HOME GRID
+  (2026-08-16, 2º console)**: sort A→Z de 118 jogos chegou perfeito exceto por UMA
+  troca de vizinhos na primeira posição de jogo (o app escreveu `80's OVERDRIVE`
+  na pos 15 e `Animal Crossing` na 16; o console exibiu invertido, resto intacto).
+  Escala de 1 permuta em 118 e localizada na fronteira NAND/cart→SD: é o console,
+  não o `apply_order` (que é sequencial e não tem como intercalar um item só).
+  Não perseguir; se incomodar, arrastar os dois no app e reescrever.
 - **O espaço de posições é COMPARTILHADO entre NAND e SD** (confirmado empiricamente:
   no console do dev os jogos SD ocupam 13, 15–25; 0–12 e 14 são apps NAND — pode haver
   app NAND misturado no meio dos jogos). As posições NAND vivem no Launcher.dat (§5.8).
@@ -316,6 +329,10 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
      EDITÁVEL. Procurado em `<sd>/3DSort/homemenu_save.bin` (onde o script GM9 de dump
      deixa), `sandbox/keys/` (dev) e `%USERPROFILE%\3DSort\`. Com escrita pendente, o
      payload gerado `homemenu_save_new.bin` tem precedência (a verdade do app).
+     Container de OUTRO console (fallback do `sandbox/`/`APP_DIR` com cartão novo) não
+     decripta: `nand_extract` levanta `Signature mismatch`, e desde 2026-08-16
+     `_read_launcher` CAI PARA O FALLBACK read-only em vez de derrubar o import
+     (§10, bug do segundo console).
   2. `Launcher.dat` plano (dump via mount A:) — fallback READ-ONLY (comportamento v1).
   3. Nada — inferência por lacunas (placeholders "System app").
 - **Canal de escrita (validado no spike 0A de 2026-08-14)**: save3ds
@@ -337,11 +354,27 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   `<sd>/gm9/out/` > paths do `build_api` (`sandbox/keys/` > `%USERPROFILE%\3DSort\`),
   valida o movable contra `console.id0` e devolve erro amigável (chaves ausentes ou
   de outro estado do console) em vez do `FileNotFoundError` cru.
+- **Script de dump é CONSOLE-AGNÓSTICO (2026-08-16)**: `gm9_dump_script()` não recebe
+  mais id0/save_id. O script resolve tudo no console via variáveis do GodMode9:
+  `$[SYSID0]` (id0 do movable da SysNAND, mesmo `1:` de onde ele copia) e `$[REGION]`
+  (do SecureInfo) num `if chk`/`elif` gerado a partir de `NAND_SAVE_IDS`, com `else`
+  que aborta dizendo que a região não é suportada (evita `sysdata//00000000` mudo em
+  AUS/UNK). Motivo: id0 embutido = script quebrado em qualquer cartão multi-console
+  (§10). O `3DSort_inject.gm9` CONTINUA por console: quando ele é gerado as chaves já
+  foram validadas contra o id0 certo e os 3 gates sha abortam em console errado.
 - **Injeção**: o app publica `<sd>/3DSort/homemenu_save_new.bin` + `.sha` + scripts
   `<sd>/gm9/scripts/3DSort_{dump,inject}.gm9`. O inject tem gates sha duros (payload
   íntegro; NAND == dump original, aborta se o HOME bootou no meio; cópia bit-perfeita)
   + `fixcmac` + recibo `inject_done.sha`. O app confirma o recibo no próximo import e
-  promove o payload a dump corrente. **GATE PENDENTE (Fase 0C)**: uma escrita real
+  promove o payload a dump corrente.
+- **SCRIPT DE INJECT NUNCA SOBREVIVE AO PAYLOAD (2026-08-16, relatado pelo usuário)**:
+  `_promote_payload` apagava os `.sha` mas DEIXAVA o `3DSort_inject.gm9` no cartão.
+  Rodar esse script órfão aborta no GATE 1 (payload não existe), o que na tela do
+  console é indistinguível de "a escrita quebrou" — susto grande, causa nenhuma.
+  Corrigido: `_promote_payload` chama `_delete_inject_script()` (helper reusado pelo
+  `cancel_inject`), então verify/confirm/cancel removem o script junto. O
+  `3DSort_dump.gm9` FICA sempre (é o próximo passo do usuário). Coberto por
+  `test_consumed_inject_script_is_removed` (verify E confirm). **GATE PENDENTE (Fase 0C)**: uma escrita real
   validada no console (trocar 2 apps NAND, injetar, bootar, fotografar, restaurar).
 - Tamanho: 3dbrew documenta `0x2490`, mas o console real (11.17 USA) produz **`0x2558`**
   — 200 bytes extras no FIM, offsets conhecidos idênticos (validado no dump do dev; o
@@ -523,6 +556,22 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
   - Nunca aparece no mock (sempre `ready`); hook de UI `?wizard=<stage>`.
   - Guardado por `tests/test_ui_boot.py` (separação, consts de rótulo, `detail`
     em toda tela, consumo do retorno, guia sem ações).
+- **SCROLL PRESERVADO ENTRE RENDERS** (2026-08-17, pedido do usuário): `render()`
+  troca `#screen.innerHTML` inteiro, o que DESTRÓI os painéis roláveis
+  (`.grid` e `.preview-col`, `overflow:auto` no index.html) e os recria em
+  `scrollTop 0`. Sintoma: swap com o grid rolado (página 2 em diante) jogava a
+  tela para o topo a cada mudança staged. `SCROLL_PANES` + `captureScroll()`/
+  `restoreScroll()` em volta do bloco de innerHTML; o restore vem ANTES do
+  `playFlip` porque as deltas do FLIP são relativas à viewport. Painel rolável
+  novo → acrescentar o seletor em `SCROLL_PANES`. Guardado por
+  `test_render_restores_the_scroll_of_the_scrollable_panes`.
+- **"O script já está no cartão" é const única** (`GM9_SCRIPT_ON_CARD`,
+  2026-08-17): `_publish_dump_script` grava `gm9/scripts/3DSort_dump.gm9` em
+  TODO import e write, mas o usuário continuava procurando um arquivo para
+  baixar. A frase (com o caminho `gm9/scripts`) aparece no wizard de dump, na
+  aba SYNC e na página 4 do `INSTRUCTION_PAGES` — sempre pela mesma const, para
+  o caminho não divergir do que o backend escreve. Guardado por
+  `test_the_script_is_already_on_the_card_is_one_const_shown_where_it_matters`.
 - **Erro de write_sd fica NO MODAL** (2026-08-15, pedido do usuário): bloco
   vermelho persistente `#writeError` + botão vira RETRY, modal não fecha. Antes
   era toast de 2.2s e passava despercebido, custando idas ao console.
@@ -677,6 +726,47 @@ mostra `%USERPROFILE%` no cartão). README com badges estáticos (sem CI/release
 que não existem), LICENSE GPL-3.0 (alinhada ao Cthulhu). Versão unificada em
 `VERSION` no ui/app.js (era literal duplicado em 2 lugares, divergindo do §10):
 **v1.1.0**.
+
+**Feito (2026-08-16, bug do SEGUNDO CONSOLE — 147 testes)**: usuário rodou o
+`3DSort_dump` no segundo console (New 3DS, USA) e o script abortou com "HOME menu
+save not found". Diagnóstico no cartão real: ele tem **3 pastas id0**, todas com
+extdata do HOME; `find_console` pegava a PRIMEIRA (`1dcb1d45…`, órfã de um estado
+antigo) e assava esse id0 no script, mandando o GM9 para um caminho que não existe
+na NAND. Região nunca foi o problema (a mensagem sugeria isso e enganou). Três
+correções, todas com teste:
+- `find_console(sd, prefer_id0=)` + `Api._sd_movable_id0()`: a pasta viva é a que
+  casa com o movable do cartão (§5.1). No cartão real: sem dica `1dcb1d45…`,
+  com dica `4c8ea115…` (a viva, 22 extdatas).
+- `gm9_dump_script()` sem parâmetros, resolvendo `$[SYSID0]`/`$[REGION]` no próprio
+  console (§5.8): um script serve qualquer console e nunca fica obsoleto.
+- `_read_launcher` degrada para read-only quando o container não decripta
+  (§5.8): antes o `Signature mismatch` cru do save3ds derrubava o import inteiro
+  — era o container do console do dev vindo do fallback `sandbox/keys/`.
+- Mensagem de `_resolve_keys` agora cobre os dois casos do mismatch de id0 (chave
+  velha OU console novo no cartão, que precisa bootar o HOME uma vez).
+- `test_real_sd_untouched_guard` passou a hashear POR PASTA id0 (o glob pegava a
+  primeira e acusou falso "REAL SD WAS MODIFIED" ao trocar de cartão; verificado
+  arquivo a arquivo que nada foi escrito — extdata de 15/02/2024).
+Validado no cartão real (só leitura): app abre com o cartão do segundo console,
+135 jogos com ícones, 14 apps de sistema, pasta Homebrew; `launcherWritable` false
+até o usuário rodar o dump novo.
+
+**CICLO COMPLETO VALIDADO NO 2º CONSOLE (2026-08-16, exe rebuildado)**: dump →
+sort A→Z de 135 títulos → write → inject → boot. Todos os ícones chegaram na
+ordem certa, SEM necessidade de desembrulhar nada (o zeramento de status do §5.4
+funcionou em massa num console que nunca tinha rodado o app). Pastas reais do
+usuário (`APPS & LAUNCHER`, `Virtual Console`) preservadas. Única divergência:
+1 permuta de vizinhos feita pelo console (§5.4). Isso fecha o gate de "validar
+em 2º console" que bloqueava a release. ATENÇÃO OPERACIONAL: `dist\3DSort.exe`
+não se atualiza sozinho — o usuário rodou o exe de 15/08 depois do fix e viu a
+tela de "chave velha" do código antigo; sempre `pyinstaller 3DSort.spec` antes
+de pedir teste em hardware.
+
+**Feito (2026-08-17, polish de UI — 149 testes)**: scroll preservado entre
+renders (§7: o swap na página 2 não joga mais a tela para o topo; validado em
+browser real, scrollTop 189 antes e depois do swap, era 189→0) e a const
+`GM9_SCRIPT_ON_CARD` deixando explícito no wizard e no SYNC que o app já
+escreveu o `3DSort_dump.gm9` em `gm9/scripts` (§7).
 
 **Distribuição (restante)**: publicar release (exe + README) e smoke em máquina
 limpa SEM Python (aqui o exe roda na máquina de dev, que tem Python instalado;
