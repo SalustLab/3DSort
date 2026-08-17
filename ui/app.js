@@ -120,12 +120,32 @@ function playFlip(before) {
   }
 }
 
+// render() replaces #screen wholesale, so the panes that scroll (.grid and
+// .preview-col, see index.html) are destroyed and rebuilt at scrollTop 0. Every
+// staged change would jump the user back to the top of the grid.
+const SCROLL_PANES = [".grid", ".preview-col"];
+
+function captureScroll() {
+  return SCROLL_PANES.map(sel => {
+    const el = document.querySelector(sel);
+    return el ? el.scrollTop : 0;
+  });
+}
+
+function restoreScroll(tops) {
+  SCROLL_PANES.forEach((sel, i) => {
+    const el = document.querySelector(sel);
+    if (el) el.scrollTop = tops[i];
+  });
+}
+
 function render() {
   if (P.tab === "RULES" || P.tab === "THEMES") {
     P.tab = "GRID"; savePrefs(); toast("Coming in a future version");
   }
   renderTop();
   const before = captureGrid();
+  const tops = captureScroll();
   const el = document.getElementById("screen");
   if (P.tab === "GRID") el.innerHTML = gridScreen();
   else if (P.tab === "RULES") el.innerHTML = rulesScreen();
@@ -133,6 +153,7 @@ function render() {
   else if (P.tab === "SYNC") el.innerHTML = syncScreen();
   else if (P.tab === "INSTRUCTIONS") el.innerHTML = instructionsScreen();
   else el.innerHTML = settingsScreen();
+  restoreScroll(tops);   // before playFlip: the FLIP deltas are viewport-relative
   bind();
   playFlip(before);
 }
@@ -473,6 +494,9 @@ function syncScreen() {
       <div class="btn" id="importBtn">⇣ Import layout from SD</div>
       <div class="btn" id="backupBtn">⛉ Back up current layout</div>
       <div class="btn primary" id="writeBtn2">${n ? `WRITE ${n} STAGED CHANGE${n === 1 ? "" : "S"} ▸` : "NOTHING STAGED"}</div>
+      <div style="display:flex;gap:8px;background:#eef7e2;border:1px solid #b7d894;border-radius:10px;padding:10px 12px;font-size:11.5px;font-weight:700;color:#3d6b12;line-height:1.45">
+        <span class="dot">✓</span> ${esc(GM9_SCRIPT_ON_CARD)}
+      </div>
       <div style="display:flex;gap:8px;background:#faecd4;border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:11.5px;font-weight:700;color:var(--mut2);line-height:1.45">
         <span class="dot">!</span> A backup is taken automatically before every write. Eject the card safely before putting it back in the console.
       </div>
@@ -514,6 +538,10 @@ const BTN_WIZ_VERIFY = "I RAN IT, VERIFY";
 const GM9_ENTER = "Power the console off. Hold START while turning it on. That boots GodMode9 instead of the HOME menu.";
 const GM9_RUN_SCRIPT = "In GodMode9, press the HOME button, choose Scripts..., pick the script and follow the prompts on screen.";
 const GM9_DUMP_WHAT = "3DSort_dump copies the HOME menu system save, movable.sed and boot9.bin to the 3DSort folder on the SD card. Those are what this app reads. Run it before the first import, and again before every system layout edit.";
+// app.py::_publish_dump_script writes the script on every import and every
+// write, so it is always on the card already. Users kept hunting for a file to
+// download, so this is stated wherever the dump is asked for, from one const.
+const GM9_SCRIPT_ON_CARD = "3DSort already put the script on your SD card, in the gm9/scripts folder. There is nothing to download or copy: it is refreshed every time this app reads the card.";
 
 // The INSTRUCTIONS tab and the setup guide render THIS array, so the two can
 // never drift apart.
@@ -523,11 +551,11 @@ const INSTRUCTION_PAGES = [
   { title: "Entering GodMode9", body: GM9_ENTER },
   { title: "Running a script", body: GM9_RUN_SCRIPT },
   { title: "The dump script (3DSort_dump)",
-    body: GM9_DUMP_WHAT + `<br><br>The app writes this script to the SD card by itself, in gm9/scripts. You never copy a file by hand. After it runs, put the card back in the PC and press ${BTN_IMPORT} on the SYNC tab.` },
+    body: GM9_DUMP_WHAT + `<br><br><b>${GM9_SCRIPT_ON_CARD}</b><br><br>After it runs, put the card back in the PC and press ${BTN_IMPORT} on the SYNC tab.` },
   { title: "The inject script (3DSort_inject)",
     body: "Moving system apps, folders or the Game Card tile changes the console NAND, which this app never touches directly. Writing publishes a payload to the SD card and the SYNC tab shows a pending banner. Run 3DSort_inject in GodMode9 to apply it.<br><br>The script checks three things before writing: the payload is intact, the console NAND still matches the dump, and the copy is bit perfect. If any check fails the script aborts and nothing is written.<br><br>Do not boot the HOME menu between writing on the PC and running the inject. Booting it changes the NAND and the second check aborts on purpose." },
   { title: "If something goes wrong",
-    body: `<b>movable.sed does not match this SD card</b>: the keys are from an older console state. Run 3DSort_dump again, then press ${BTN_IMPORT} on the SYNC tab.<br><br><b>The inject aborted</b>: nothing was harmed. Run 3DSort_dump again, press ${BTN_IMPORT} on the SYNC tab, redo the system changes (or restore the auto backup from the SYNC tab) and write again.<br><br><b>A title still looks gift wrapped</b>: that is console side state. Open it once and it goes away.` },
+    body: `<b>movable.sed does not match this SD card</b>: if this console has never used this card, boot the HOME menu once with the card inserted so the console creates its data folder, then press ${BTN_IMPORT} on the SYNC tab. Otherwise the keys are from an older console state: run 3DSort_dump again and import.<br><br><b>The system apps are not draggable</b>: the card has no HOME menu save dumped for this console yet. Run 3DSort_dump on the console it belongs to, then press ${BTN_IMPORT} on the SYNC tab.<br><br><b>The inject aborted</b>: nothing was harmed. Run 3DSort_dump again, press ${BTN_IMPORT} on the SYNC tab, redo the system changes (or restore the auto backup from the SYNC tab) and write again.<br><br><b>A title still looks gift wrapped</b>: that is console side state. Open it once and it goes away.` },
 ];
 
 const insCard = (title, body) => `<div class="card" style="display:flex;flex-direction:column;gap:7px">
@@ -937,8 +965,9 @@ async function renderWizard(stage, detail) {
     const stale = stage === "stale_keys"
       ? `<div style="font-size:12px;color:var(--red);font-weight:800;background:#fde8ec;border-radius:8px;padding:9px 12px;line-height:1.5">The keys on the card are from an older console state, so they cannot read it. Run 3DSort_dump again to replace them.</div>` : "";
     $("screen").innerHTML = wizCard("Dump your console data",
-      "3DSort needs the console's own keys and HOME menu save. A GodMode9 script does that for you, and it is already on the SD card.",
-      `${stale}${wizSteps(`1. Put the SD card back in the console.<br>
+      "3DSort needs the console's own keys and HOME menu save. A GodMode9 script does that for you.",
+      `${stale}<div style="font-size:12.5px;font-weight:800;color:#3d6b12;background:#eef7e2;border:1.5px solid #b7d894;border-radius:8px;padding:10px 12px;line-height:1.5">✓ ${esc(GM9_SCRIPT_ON_CARD)}</div>
+       ${wizSteps(`1. Put the SD card back in the console.<br>
         2. ${esc(GM9_ENTER)}<br>
         3. ${esc(GM9_RUN_SCRIPT)} Choose 3DSort_dump.<br>
         4. Put the SD card back in this PC and press ${esc(BTN_WIZ_VERIFY)} below.`)}

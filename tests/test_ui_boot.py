@@ -62,6 +62,23 @@ def test_native_html_has_no_serve_flag():
     assert "SERVE_MODE" not in (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
 
 
+# ---- scroll position across re-renders -------------------------------------
+
+def test_render_restores_the_scroll_of_the_scrollable_panes():
+    """render() replaces #screen wholesale, which destroys the scrollable .grid
+    and .preview-col and sends the user back to the top. Swapping two tiles on
+    page 2 must leave the view where it was."""
+    body = region("function render()", "\nfunction renderTop")
+    assert "captureScroll()" in body, "capture before innerHTML is replaced"
+    assert "restoreScroll(" in body, "and put it back after"
+    panes = region("const SCROLL_PANES = [", "];")
+    for sel in (".grid", ".preview-col"):
+        assert sel in panes, f"{sel} scrolls (index.html) and must be captured"
+    assert "scrollTop" in region("function captureScroll()", "\nfunction restoreScroll")
+    # the FLIP measures against the viewport, so the scroll must be back first
+    assert body.index("restoreScroll(") < body.index("playFlip(")
+
+
 # ---- setup screens: doing vs reading ---------------------------------------
 
 def test_wizard_and_guide_are_separate_functions():
@@ -124,6 +141,22 @@ def test_guide_and_instructions_tab_share_one_source():
     assert "INSTRUCTION_PAGES[" in guide
     tab = region("function instructionsScreen()", "\nfunction settingsScreen")
     assert "INSTRUCTION_PAGES.map" in tab
+
+
+def test_the_script_is_already_on_the_card_is_one_const_shown_where_it_matters():
+    """app.py publishes 3DSort_dump.gm9 on every import, yet users still look for
+    a file to download. The fact has to be on screen wherever the dump is asked
+    for, not only buried in the INSTRUCTIONS tab, and from a single const so the
+    path cannot drift from what _publish_dump_script actually writes."""
+    assert "const GM9_SCRIPT_ON_CARD =" in APP_JS
+    on_card = region("const GM9_SCRIPT_ON_CARD =", ";\n")
+    assert "gm9/scripts" in on_card, "name the folder the user can check"
+    wizard = region("async function renderWizard(stage, detail)", "\nasync function wizAdvance")
+    assert "GM9_SCRIPT_ON_CARD" in wizard, "the dump screen must say it"
+    sync = region("function syncScreen()", "\n// ---- guidance content")
+    assert "GM9_SCRIPT_ON_CARD" in sync, "returning users read SYNC, not the wizard"
+    pages = region("const INSTRUCTION_PAGES = [", "];")
+    assert "GM9_SCRIPT_ON_CARD" in pages, "one source, no retyped copy"
 
 
 def test_instruction_text_names_buttons_by_const():
