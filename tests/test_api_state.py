@@ -35,6 +35,22 @@ def test_game_items_expose_real_positions():
     assert [i["pos"] for i in st["items"]] == GAME_POSITIONS
 
 
+def test_unreadable_container_degrades_to_read_only(monkeypatch):
+    """A container from another console (leftover in the app folder, or a card moved
+    between consoles) cannot be decrypted with the current keys. That must degrade to
+    the read-only layout, not abort the whole import with a raw save3ds error."""
+    api = build_api(mock=True)
+
+    def boom(*a, **k):
+        raise RuntimeError("save3ds nandsave --extract failed: ERROR - Signature mismatch")
+
+    monkeypatch.setattr(api.save3ds, "nand_extract", boom)
+    st = api.get_state()
+    assert "error" not in st
+    assert st["launcherWritable"] is False
+    assert st["items"], "SD games still load"
+
+
 def test_fallback_without_launcher_infers_gaps():
     api = build_api(mock=True, no_launcher=True)
     st = api.get_state()

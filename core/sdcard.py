@@ -41,12 +41,18 @@ class Console:
                 "extdata" / "00000000" / self.extdata_id[-8:])
 
 
-def find_console(sd_root: Path) -> Console:
-    """Locates id0/id1 and the HOME menu extdata on the SD. Clear error if not found."""
+def find_console(sd_root: Path, prefer_id0: str | None = None) -> Console:
+    """Locates id0/id1 and the HOME menu extdata on the SD. Clear error if not found.
+
+    A card can carry several id0 folders (used on more than one console, or kept
+    across a system format), and the leftovers look exactly like the live one.
+    prefer_id0 (derived from the movable.sed on the card) picks the right one;
+    without it, or when it names no folder here, the first match wins."""
     sd_root = Path(sd_root)
     n3ds = sd_root / "Nintendo 3DS"
     if not n3ds.is_dir():
         raise FileNotFoundError(f"'Nintendo 3DS' folder not found in {sd_root}")
+    found = []
     for id0 in n3ds.iterdir():
         if not (id0.is_dir() and len(id0.name) == 32):
             continue
@@ -58,8 +64,13 @@ def find_console(sd_root: Path) -> Console:
                 continue
             for eid, region in HOME_EXTDATA_IDS.items():
                 if (ext_root / eid).is_dir():
-                    return Console(sd_root, id0.name, id1.name, region, "00000000" + eid)
-    raise FileNotFoundError(f"HOME menu extdata not found in {n3ds}")
+                    c = Console(sd_root, id0.name, id1.name, region, "00000000" + eid)
+                    if prefer_id0 is not None and c.id0 == prefer_id0:
+                        return c
+                    found.append(c)
+    if not found:
+        raise FileNotFoundError(f"HOME menu extdata not found in {n3ds}")
+    return found[0]
 
 
 def default_sd_candidates(bases=None) -> list[Path]:

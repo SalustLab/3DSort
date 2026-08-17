@@ -85,20 +85,30 @@ def test_nandsave_roundtrip_on_copy(s3, tmp_path):
 
 
 def test_real_sd_untouched_guard():
-    """No test alters the real SD: the extdata hash on G: is compared at session start/end."""
+    """No test alters the real SD: the extdata hashes on G: are compared at session
+    start/end. Hashed per id0 folder and keyed by folder name, so swapping in another
+    card (or a card carrying leftover id0 folders) reports 'unknown', never a false
+    'modified' - and every known folder still gets checked.
+
+    Known limitation: a legitimate write from the APP also trips this (the guard
+    cannot tell who wrote). When it fires, check the extdata timestamps against the
+    backup history before assuming a test misbehaved, then re-register the baseline."""
     real = Path("G:/Nintendo 3DS")
     if not real.exists():
         pytest.skip("real SD not mounted")
     import hashlib
-    h = hashlib.sha256()
-    ext = next(real.glob("*/*/extdata/00000000/0000008f"))
-    for p in sorted(ext.rglob("*")):
-        if p.is_file():
-            h.update(p.name.encode())
-            h.update(p.read_bytes())
-    digest = h.hexdigest()
     marker = Path(__file__).parent / ".real_sd_hash"
-    if marker.exists():
-        assert marker.read_text() == digest, "REAL SD WAS MODIFIED by some test!"
-    else:
-        marker.write_text(digest)
+    known = dict(line.split(None, 1) for line in
+                 marker.read_text().split("\n") if line.strip()) if marker.exists() else {}
+    seen = {}
+    for ext in sorted(real.glob("*/*/extdata/00000000/0000008f")):
+        h = hashlib.sha256()
+        for p in sorted(ext.rglob("*")):
+            if p.is_file():
+                h.update(p.name.encode())
+                h.update(p.read_bytes())
+        id0 = ext.relative_to(real).parts[0]
+        seen[id0] = h.hexdigest()
+        if id0 in known:
+            assert known[id0] == seen[id0], f"REAL SD WAS MODIFIED by some test! ({id0})"
+    marker.write_text("\n".join(f"{k} {v}" for k, v in sorted({**known, **seen}.items())))
