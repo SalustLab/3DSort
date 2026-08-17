@@ -22,7 +22,7 @@
 
 Organizing icons on the console itself is slow: one stylus drag at a time, page
 by page. 3DSort edits the layout directly on the SD card instead. Put the card
-in your computer, drag things around in a desktop app, check the live preview,
+in your computer, sort your games automatically by alphabetical order or release year, or manually drag things around and manage folders in a desktop app, check the live preview,
 then write the result back and boot the console.
 
 **[Download the latest release](https://github.com/SalustianCreativeLabs/3DSort/releases/latest)**
