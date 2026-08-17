@@ -8,17 +8,26 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
-[![Tests](https://img.shields.io/badge/tests-140%20passing-7ac70c?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-151%20passing-7ac70c?style=flat-square)](#tests)
 [![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v1.1.0-d31e40?style=flat-square)](#status)
 
 </div>
 
+> [!NOTE]
+> **Built with AI assistance.** Much of this code was written with Claude. The
+> 3DS file formats were reverse engineered against real dumps, and every write
+> path was validated on real consoles before release. Read the code, check the
+> tests, judge it on whether it works.
+
 Organizing icons on the console itself is slow: one stylus drag at a time, page
 by page. 3DSort edits the layout directly on the SD card instead. Put the card
 in your computer, drag things around in a desktop app, check the live preview,
 then write the result back and boot the console.
+
+**[Download the latest release](https://github.com/SalustianCreativeLabs/3DSort/releases/latest)**
+— a single portable `.exe` for Windows, no installer and no Python needed.
 
 ![The GRID tab: live console preview on the left, drag-and-drop grid of real game icons on the right](docs/images/grid.png)
 
@@ -106,7 +115,7 @@ python app.py --serve --mock  # synthetic data, no SD or keys needed
 ### Tests
 
 ```
-python -m pytest tests -q     # 140 tests
+python -m pytest tests -q     # 151 tests
 ```
 
 The suite runs on any machine. Tests that need real console keys skip
@@ -169,14 +178,12 @@ original container stays on the card for recovery.
 
 ## Status
 
-Beta. The core is covered by 140 tests, including round trips against a copy of
+Beta. The core is covered by 151 tests, including round trips against a copy of
 a real card, and the full cycle (write, NAND inject, restore) has been validated
-end to end on real hardware. The app never writes without an automatic backup
-and an explicit confirmation. Still, it has only been exercised on one console
-so far, so keep your own backups.
+end to end on two different consoles. The app never writes without an automatic
+backup and an explicit confirmation. It is still young, so keep your own backups.
 
-The grid and sync screenshots come from a real console's SD card. The setup and
-instructions screenshots use the app's demo data.
+The screenshots use the app's demo data, not a real console library.
 
 ## License
 
