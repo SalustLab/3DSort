@@ -154,8 +154,17 @@ SD:\Nintendo 3DS\<id0 32 hex>\<id1 32 hex>\
 └── dbs\...
 ```
 
-- extdata do HOME menu por região: **JPN `00000082` · USA `0000008f` · EUR `00000098`**
-  (mapa em `core/sdcard.py::HOME_EXTDATA_IDS`). O console do dev é **USA**.
+- extdata do HOME menu por região: **JPN `00000082` · USA `0000008f` · EUR `00000098`
+  · CHN `000000a1` · KOR `000000a9` · TWN `000000b1`** (mapa em
+  `core/sdcard.py::HOME_EXTDATA_IDS`). O console do dev é **USA**. JPN/USA/EUR são
+  validados em hardware; CHN/KOR/TWN entraram em 2026-08-17 a partir do 3dbrew e do
+  3ds.hacks.guide (secção de limpar extdata do HOME) e **nunca rodaram num console**
+  — o `NAND_SAVE_IDS` é DERIVADO (`0002` + nº da região), regra que vale nos três
+  validados. O ID do extdata NÃO deriva do title ID do HOME menu (USA = title
+  `9902`, extdata `8f`): são numerações independentes, não "simplificar" isso.
+  As pastas podem estar em MAIÚSCULA (é assim que a documentação escreve), então
+  `find_console` e `Console.extdata_dir` casam sem depender de caixa: só o `8f`
+  tinha letra entre as 3 originais, e por isso o bug nunca apareceu.
 - **UM CARTÃO PODE TER VÁRIOS id0** (aprendido em 2026-08-16, §10): usado em mais de um
   console, ou mantido através de um formato de sistema, o SD acumula pastas id0 órfãs
   INDISTINGUÍVEIS da viva (todas com extdata do HOME). `find_console(sd, prefer_id0=)`
@@ -322,8 +331,17 @@ Desde 2026-08-14 o app EDITA o Launcher.dat via container do system save:
 ### 5.8 Launcher.dat (apps NAND — leitura E escrita em core/launcher.py)
 
 - Local: system save do HOME menu na NAND — `nand:/data/<id0>/sysdata/<ID>/00000000`,
-  ID por região: **JPN `00020082` · USA `0002008F` · EUR `00020098`** (mapa
-  `NAND_SAVE_IDS` em core/sdcard.py).
+  ID por região: **JPN `00020082` · USA `0002008f` · EUR `00020098` · CHN `000200a1`
+  · KOR `000200a9` · TWN `000200b1`** (mapa `NAND_SAVE_IDS` em core/sdcard.py,
+  derivado do `HOME_EXTDATA_IDS`; ver a ressalva de §5.1 sobre CHN/KOR/TWN).
+- **REGION CHANGE (limitação conhecida, 2026-08-17)**: `_nand_save_id()` tira a
+  região do EXTDATA DO SD, enquanto o `3DSort_dump.gm9` usa o `$[REGION]` do
+  SecureInfo da NAND. Num console com região trocada as duas fontes podem
+  discordar e o app pediria `--nandsave` com o ID errado. Não corrompe: o
+  `save3ds` falha e o `_read_launcher` degrada para read-only (§5.8). O
+  `prefer_id0` torna isso raro (a pasta escolhida é a que casa com o movable
+  atual). Se aparecer relato, a correção é ler a região do próprio container em
+  vez do SD.
 - **Fontes, em ordem de precedência** (`Api._find_container`/`_read_launcher`):
   1. CONTAINER `homemenu_save.bin` (o arquivo `00000000` inteiro, DISA 64KB) — canal
      EDITÁVEL. Procurado em `<sd>/3DSort/homemenu_save.bin` (onde o script GM9 de dump
