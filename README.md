@@ -150,6 +150,9 @@ Real-card testing must use a backup copy first. The macOS helper is compiled
 from [wwylele/save3ds](https://github.com/wwylele/save3ds) with FUSE disabled;
 the helper's MIT/Apache notices remain in `tools/save3ds/`.
 
+For the current Apple Silicon validation status and the safe real-card checklist,
+see [`docs/MACOS_TESTING.md`](docs/MACOS_TESTING.md).
+
 ## Linux (run from source)
 
 The app itself is portable. Two things need attention:
