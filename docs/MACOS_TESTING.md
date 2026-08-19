@@ -4,6 +4,9 @@ This fork is intended for Apple Silicon Macs. The packaged app has been built
 and launched on macOS Tahoe 26.6.2, but a real-card read/extract test is kept
 separate from the safe synthetic-data smoke test.
 
+The completed hardware record, screenshots and exact observed values are in
+[`MACOS_FORK_VALIDATION.md`](MACOS_FORK_VALIDATION.md).
+
 ## Safe build and UI smoke test
 
 From the repository root:

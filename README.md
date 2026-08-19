@@ -8,17 +8,20 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-4a3f35?style=flat-square)](#running-from-source)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
-[![Tests](https://img.shields.io/badge/tests-151%20passing-7ac70c?style=flat-square)](#tests)
-[![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
+[![Tests](https://img.shields.io/badge/tests-146%20passed%20%7C%207%20skipped-7ac70c?style=flat-square)](#tests)
+[![Hardware validated](https://img.shields.io/badge/hardware-real%202DS%20XL%20read--tested-d31e40?style=flat-square)](#macos-fork-validation)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v1.1.0-d31e40?style=flat-square)](#status)
 
 </div>
 
 > [!NOTE]
-> **Built with AI assistance.** Much of this code was written with Claude. The
-> 3DS file formats were reverse engineered against real dumps, and every write
-> path was validated on real consoles before release.
+> **Built with multiple AI assistants.** The upstream project openly credits
+> Claude. This macOS arm64 fork was then implemented, debugged, packaged and
+> hardware-read-tested with OpenAI Codex. The useful comparison is not a slogan:
+> this branch adds a native helper, a real `.app` bundle, a safe mock launcher,
+> a macOS packaging test, a GodMode9 script fix, and a documented real-card
+> validation record. The evidence is below.
 
 Organizing icons on the console itself is slow: one stylus drag at a time, page
 by page. 3DSort edits the layout directly on the SD card instead. Put the card
@@ -69,6 +72,49 @@ and injecting. Every HOME boot touches the NAND save, so the inject script
 will refuse a stale target. If it happens, run `3DSort_dump` again and retry;
 nothing is lost.
 
+## Why this macOS fork goes further
+
+The Windows release remains useful and is still the upstream reference. For
+this Apple Silicon workflow, however, the macOS fork is a more controlled
+desktop deliverable:
+
+| Area | Upstream Windows path | This macOS arm64 fork |
+| --- | --- | --- |
+| App delivery | Portable `3DSort.exe` | Native `dist/3DSort.app` bundle |
+| Crypto helper | Bundled Windows executable | Native arm64 `save3ds_fuse` built from source with FUSE disabled |
+| Runtime dependency | WebView2 runtime on Windows | macOS WebKit-backed pywebview window; no WebView2 installation |
+| Safe development run | Synthetic data is available through source flags | `script/build_and_run.sh --verify` always launches `--mock` |
+| Card addressing | Windows drive-letter conventions | `/Volumes` detection plus explicit `--sd /Volumes/3DS` override |
+| Validation evidence | Upstream Windows release workflow | Tahoe 26.6.2 package test plus a real New Nintendo 2DS XL read/extract test |
+| Failure handling | Portable executable workflow | On-card GodMode9 instructions, id0/key validation, SHA-256 sidecars, and no-write read test |
+
+This is a workflow comparison, not a claim that Windows cannot run 3DSort. The
+macOS result is better here because the app, helper architecture, card mount,
+test mode and hardware evidence all line up with the machine being used.
+
+## macOS fork validation
+
+These screenshots are from the packaged app reading the real card from the
+New Nintendo 2DS XL, not from synthetic `--mock` data:
+
+![The macOS Grid tab showing the real 2DS XL HOME layout, live preview, folders and 68 titles](docs/images/macos-grid-real.png)
+
+*Grid: the live preview and editable grid agree on the same imported layout;
+the footer reports 68 titles, 17 system entries and 5 folders.*
+
+![The macOS Sync tab showing the mounted 256GB FAT32 card at /Volumes/3DS and nothing staged](docs/images/macos-sync-real.png)
+
+*Sync: macOS sees the card at `/Volumes/3DS`, reports 99.7 GB used and
+1,190,458 blocks free, and shows `NOTHING STAGED`.*
+
+![The macOS Instructions tab showing the GodMode9 dump and inject safety workflow](docs/images/macos-instructions-real.png)
+
+*Instructions: the app carries the complete GodMode9 procedure, including the
+warning that NAND-affecting changes require the separate inject step.*
+
+The full test record, hardware details, commands and safety boundaries are in
+[`docs/MACOS_FORK_VALIDATION.md`](docs/MACOS_FORK_VALIDATION.md).
+
 ## What you need
 
 - A 3DS with custom firmware (Luma3DS) and GodMode9
@@ -113,7 +159,7 @@ python app.py --serve --mock  # synthetic data, no SD or keys needed
 ### Tests
 
 ```
-python -m pytest tests -q     # 151 tests
+python -m pytest tests -q     # 146 passed, 7 skipped
 ```
 
 The suite runs on any machine. Tests that need real console keys skip
@@ -196,10 +242,12 @@ original container stays on the card for recovery.
 
 ## Status
 
-Beta. The core is covered by 151 tests, including round trips against a copy of
-a real card, and the full cycle (write, NAND inject, restore) has been validated
-end to end on two different consoles from one region (N3DS, N3DSXL both USA). The app never writes without an automatic
-backup and an explicit confirmation.
+Beta. The upstream core includes round trips against a copy of a real card and
+the full write/inject/restore cycle has been validated on USA consoles. This
+fork additionally read/extract-tested the packaged Apple Silicon app against a
+USA New Nintendo 2DS XL on macOS Tahoe 26.6.2. The macOS port validation did
+not press `WRITE` or run `3DSort_inject`; console keys and saves remain local
+and are not part of the fork.
 
 ## License
 
