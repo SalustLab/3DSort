@@ -65,6 +65,8 @@ def test_import_publishes_dump_script_mock():
     assert script.exists()
     txt = script.read_text(encoding="ascii")
     assert "movable.sed" in txt and "boot9.bin" in txt
+    assert "if not find 0:/3DSort NULL" in txt
+    assert "mkdir 0:/3DSort" in txt
 
 
 def test_import_publishes_dump_script_even_without_keys(tmp_path):
