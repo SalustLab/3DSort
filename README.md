@@ -6,7 +6,7 @@
 
 **Rearrange your Nintendo 3DS HOME menu from your PC.**
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-4a3f35?style=flat-square)](#running-from-source)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
 [![Tests](https://img.shields.io/badge/tests-151%20passing-7ac70c?style=flat-square)](#tests)
 [![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
@@ -132,6 +132,23 @@ The result is a single portable `dist\3DSort.exe` with no installer. The UI,
 the fonts, the icon and the save3ds binary are bundled, so the app needs no
 network access at runtime. The icon itself is generated: run
 `python tools/make_icon.py` to redraw `ui/3dsort.ico` after changing it.
+
+## macOS (Apple Silicon)
+
+The source runs on macOS 14 or later, including macOS Tahoe. Install Python
+3.10 or newer, Rust, and the project dependencies, then build the native
+`save3ds` helper and launch the safe synthetic-data window:
+
+    python3.13 -m venv .venv    # any Python 3.10+ executable is fine
+    .venv/bin/pip install -r requirements-dev.txt
+    tools/build_save3ds_macos.sh
+    ./script/build_and_run.sh --verify
+
+The macOS build produces `dist/3DSort.app`. The development launcher always
+uses `--mock`, so it cannot inspect or modify a mounted SD card accidentally.
+Real-card testing must use a backup copy first. The macOS helper is compiled
+from [wwylele/save3ds](https://github.com/wwylele/save3ds) with FUSE disabled;
+the helper's MIT/Apache notices remain in `tools/save3ds/`.
 
 ## Linux (run from source)
 

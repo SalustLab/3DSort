@@ -32,3 +32,12 @@ def test_fonts_are_vendored():
     assert (fonts / "dotgothic16-400.woff2").is_file()
     html = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
     assert "fonts.googleapis.com" not in html  # offline-correct typography
+
+
+def test_macos_spec_uses_native_helper_and_app_bundle():
+    spec = (ROOT / "3DSort.macos.spec").read_text(encoding="utf-8")
+    assert '"tools" / "save3ds" / "save3ds_fuse"' in spec
+    assert 'name="3DSort.app"' in spec
+    assert 'bundle_identifier="com.salustlab.3dsort"' in spec
+    assert "BUNDLE(" in spec
+    assert "sandbox" not in spec
