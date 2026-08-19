@@ -26,7 +26,7 @@ in your computer, sort your games automatically by alphabetical order or release
 then write the result back and boot the console.
 
 **[Download the latest release](https://github.com/SalustianCreativeLabs/3DSort/releases/latest)**
-— a single portable `.exe` for Windows, no installer and no Python needed.
+— a `.zip` with a single portable `.exe` for Windows, no installer and no Python needed.
 
 ![The GRID tab: live console preview on the left, drag-and-drop grid of real game icons on the right](docs/images/grid.png)
 
