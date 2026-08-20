@@ -159,9 +159,19 @@ real card works end to end. The write and inject cycle has not been
 hardware-tested from a Mac yet; the checklist in
 [docs/MACOS_TESTING.md](docs/MACOS_TESTING.md) covers how to test safely.
 
-## Linux (run from source)
+## Linux (x86_64)
 
-The app itself is portable. Two things need attention:
+The release page has a `3DSort-<tag>-linux-x86_64.tar.gz` built by GitHub
+Actions on Ubuntu 24.04. It needs glibc 2.39 or newer (Ubuntu 24.04+,
+Mint 22, Fedora 40+, Debian 13) and the WebKitGTK runtime:
+
+```
+sudo apt install gir1.2-webkit2-4.1 libwebkit2gtk-4.1-0
+tar xzf 3DSort-*-linux-x86_64.tar.gz
+3DSort/3DSort
+```
+
+To run from source instead:
 
 ```
 pip install -r requirements.txt
@@ -173,12 +183,11 @@ pywebview needs an explicit GUI backend on Linux. For GTK on Debian or Ubuntu:
 The folder picker falls back to tkinter in `--serve` mode only, which needs the
 distro's `python3-tk` package.
 
-The save3ds binary is Windows-only in the upstream releases, so build it once:
+The save3ds binary is Windows-only in the upstream releases, so build it once
+with Rust installed (the script is cross-platform despite the name):
 
 ```
-git clone https://github.com/wwylele/save3ds
-cd save3ds/save3ds_fuse && cargo build --release --no-default-features
-cp target/release/save3ds_fuse <3DSort>/tools/save3ds/save3ds_fuse
+bash tools/build_save3ds_macos.sh
 ```
 
 SD card auto-detection looks under `/media/<user>`, `/run/media/<user>`, `/mnt`
