@@ -41,13 +41,16 @@ F:\Projects\3DSort\
 ├── CLAUDE.md               ← this file
 ├── 3DSort.spec             ← PyInstaller onefile/windowed build
 ├── 3DSort.macos.spec       ← PyInstaller onedir .app bundle (Apple Silicon)
+├── 3DSort.linux.spec       ← PyInstaller onedir bundle (Linux x86_64, tar.gz)
 ├── LICENSE                 ← GPL-3.0 (same as Cthulhu, source of the unwrap in §5.4)
 ├── requirements.txt        ← runtime (pywebview, Pillow, pyctr)
 ├── requirements-dev.txt    ← -r requirements.txt + pytest + pyinstaller
 ├── .github/workflows/macos-release.yml ← builds the .app on a macOS arm64 runner
+├── .github/workflows/linux-release.yml ← builds the tar.gz on ubuntu-24.04 (glibc 2.39 floor)
 ├── docs/images/            ← README screenshots (--mock only: NO real console
 │                             data; the `/*.png` in .gitignore is root-anchored)
 ├── docs/MACOS_TESTING.md   ← safe macOS test checklist
+├── docs/LINUX_TESTING.md   ← safe Linux test checklist
 ├── prototype/              ← visual reference mockup (not production code)
 ├── app.py                  ← Api (single UI↔core layer), FakeSave3ds/mock, --serve, --selftest, main
 ├── spike.py                ← Phase 1 viability proof (historical)
@@ -73,7 +76,9 @@ F:\Projects\3DSort\
 │                             test_integration.py: REAL save3ds (sdext +
 │                             nandsave) over copies + the G: guard (§3.1)
 ├── tools/save3ds/save3ds_fuse.exe  ← v1.3.0 (wwylele/save3ds), extdata extract/import
-├── tools/build_save3ds_macos.sh ← builds the native helper from source (pinned v1.4.0)
+├── tools/build_save3ds_macos.sh ← builds the native helper from source (pinned
+│                             v1.4.0; cross-platform despite the name — the
+│                             Linux workflow uses it too)
 ├── tools/build_titledates.py ← generates core/titledates.json.gz (3dsdb + GameTDB; needs internet)
 ├── tools/make_icon.py      ← generates ui/3dsort.ico (Pillow)
 └── sandbox/                ← NEVER version. Copy of the real SD + the dev console's keys
@@ -598,7 +603,10 @@ chain: it receives console keys and sits on the non-Windows lookup path); the
 rebuild (`pyinstaller 3DSort.spec`) before asking for a hardware test.
 
 **Remaining for distribution**: Windows smoke on a clean machine WITHOUT
-Python (mainly with WebView2 absent); write/inject validated from a Mac.
+Python (mainly with WebView2 absent); write/inject validated from a Mac;
+Linux tar.gz validation on real hardware (release path added 2026-08-20 —
+`3DSort.linux.spec` + `linux-release.yml`, checklist in
+`docs/LINUX_TESTING.md`).
 
 **v2**: RULES tab (rule engine), THEMES/badges.
 

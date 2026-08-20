@@ -41,3 +41,12 @@ def test_macos_spec_uses_native_helper_and_app_bundle():
     assert 'bundle_identifier="com.salustlab.3dsort"' in spec
     assert "BUNDLE(" in spec
     assert "sandbox" not in spec  # never bundle the console keys
+
+
+def test_linux_spec_uses_native_helper_and_onedir():
+    spec = (ROOT / "3DSort.linux.spec").read_text(encoding="utf-8")
+    assert '"tools" / "save3ds" / "save3ds_fuse"' in spec
+    assert 'name="3DSort"' in spec
+    assert "COLLECT(" in spec
+    assert "BUNDLE(" not in spec  # onedir tarball, not an app bundle
+    assert "sandbox" not in spec  # never bundle the console keys
