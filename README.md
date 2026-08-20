@@ -220,6 +220,6 @@ carries the same license.
   documentation
 - [Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu) by Ryuzaki-MrL, whose
   "Unwrap all" feature revealed how the gift-wrap flags work
-- [@appleforever11](https://github.com/appleforever11) (Kevin) contributed the
+- [@appleforever11](https://github.com/appleforever11) contributed the
   macOS (Apple Silicon) support and validated the read path on a real
   New 2DS XL from a Mac
