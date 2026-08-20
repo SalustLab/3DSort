@@ -786,9 +786,26 @@ browser real, scrollTop 189 antes e depois do swap, era 189→0) e a const
 `GM9_SCRIPT_ON_CARD` deixando explícito no wizard e no SYNC que o app já
 escreveu o `3DSort_dump.gm9` em `gm9/scripts` (§7).
 
-**Distribuição (restante)**: publicar release (exe + README) e smoke em máquina
-limpa SEM Python (aqui o exe roda na máquina de dev, que tem Python instalado;
-falta a prova em máquina virgem, principalmente WebView2 ausente).
+**Feito (2026-08-19, macOS via PR #1 — 153 testes)**: contribuidor externo
+(appleforever11) validou LEITURA em hardware real num Mac arm64 (New 2DS XL USA,
+68 itens importados, macOS Tahoe). Do PR dele entrou por cherry-pick: guard
+`mkdir 0:/3DSort` no `gm9_dump_script` (defensivo; o cp do GM9 já criava o path,
+o dump do 2º console provou), `3DSort.macos.spec` (onedir + BUNDLE, id
+`com.salustlab.3dsort`), `tools/build_save3ds_macos.sh` (PINADO em v1.4.0 do
+save3ds, clone atômico, FUSE off), `docs/MACOS_TESTING.md`, teste de packaging
+do spec e `.gitignore` (`.venv/`, `.cache/`, `tools/save3ds/save3ds_fuse`).
+REJEITADO do PR: binário Mach-O commitado (supply chain: recebe as chaves do
+console E é o path de lookup não-Windows, quebraria Linux com Exec format
+error), screenshots de console real em docs/images (regra do §3.4), reescrita
+promocional do README e launcher dev macOS. REGRA NOVA: binário compilado de
+contribuidor NUNCA entra no repo; o zip do `.app` sai do workflow
+`.github/workflows/macos-release.yml` (workflow_dispatch, runner macOS arm64 do
+GitHub, selftest + ditto + upload no release). Write/inject em macOS segue SEM
+validação de hardware.
+
+**Distribuição (restante)**: smoke em máquina limpa SEM Python (aqui o exe roda
+na máquina de dev, que tem Python instalado; falta a prova em máquina virgem,
+principalmente WebView2 ausente). Write/inject validado a partir de um Mac.
 
 **v2**: aba RULES (motor de regras), THEMES/badges.
 

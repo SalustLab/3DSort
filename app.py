@@ -909,6 +909,9 @@ def gm9_dump_script() -> str:
 \tgoto End
 end
 set SAVE "1:/data/$[SYSID0]/sysdata/$[SAVEID]/00000000"
+if not find 0:/3DSort NULL
+\tmkdir 0:/3DSort
+end
 cp --overwrite --no_cancel 1:/private/movable.sed 0:/3DSort/movable.sed
 cp --overwrite --no_cancel M:/boot9.bin 0:/3DSort/boot9.bin
 if not exist $[SAVE]
