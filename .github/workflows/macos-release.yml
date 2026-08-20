@@ -1,0 +1,45 @@
+name: macOS release build
+
+# Builds the Apple Silicon .app on a GitHub-hosted macOS runner and attaches
+# the zip to an existing release. Manual trigger only: the maintainer decides
+# when a release gets a macOS asset.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the zip to (e.g. v1.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest # arm64
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements-dev.txt
+
+      - name: Build the native save3ds helper (pinned, FUSE disabled)
+        run: bash tools/build_save3ds_macos.sh
+
+      - name: Build the app bundle
+        run: python -m PyInstaller --clean --noconfirm 3DSort.macos.spec
+
+      - name: Selftest the bundled resources
+        run: dist/3DSort.app/Contents/MacOS/3DSort --selftest
+
+      - name: Zip the app bundle
+        # ditto preserves the bundle's exec bits and symlinks; plain zip breaks .app
+        run: ditto -c -k --keepParent dist/3DSort.app "3DSort-${{ inputs.tag }}-macos-arm64.zip"
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ inputs.tag }}" "3DSort-${{ inputs.tag }}-macos-arm64.zip" --clobber

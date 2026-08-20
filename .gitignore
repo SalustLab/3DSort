@@ -1,24 +1,24 @@
-# Segredos e dados pessoais do console. NUNCA commitar (CLAUDE.md secao 3).
+# Console secrets and personal data. NEVER commit (CLAUDE.md section 3).
 sandbox/
 *.sed
 boot9.bin
 essential.exefs
 Launcher.dat
 
-# Fotos do console e screenshots de sessoes de desenvolvimento
+# Console photos and development session screenshots
 sample/
 /*.png
 
-# Mockup visual de referencia, nao e codigo de producao
+# Visual reference mockup, not production code
 prototype/
 
-# Redundante: o exe ja esta extraido em tools/save3ds/
+# Redundant: the exe is already extracted in tools/save3ds/
 tools/save3ds.zip
 
-# Estado de runtime do guard do SD real (baseline por maquina)
+# Runtime state of the real SD guard (per-machine baseline)
 tests/.real_sd_hash
 
-# Saida do PyInstaller (o exe portatil e gerado, nao versionado)
+# PyInstaller output (the portable exe is generated, not versioned)
 build/
 dist/
 
@@ -27,3 +27,9 @@ __pycache__/
 *.pyc
 .pytest_cache/
 .playwright-mcp/
+.venv/
+.cache/
+
+# Locally built native helper (Linux/macOS, tools/build_save3ds_macos.sh).
+# Compiled binaries never enter the repo; only the official wwylele release exe.
+tools/save3ds/save3ds_fuse

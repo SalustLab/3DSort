@@ -6,9 +6,9 @@
 
 **Rearrange your Nintendo 3DS HOME menu from your PC.**
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
-[![Tests](https://img.shields.io/badge/tests-151%20passing-7ac70c?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-153%20passing-7ac70c?style=flat-square)](#tests)
 [![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v1.1.0-d31e40?style=flat-square)](#status)
@@ -25,8 +25,9 @@ by page. 3DSort edits the layout directly on the SD card instead. Put the card
 in your computer, sort your games automatically by alphabetical order or release year, or manually drag things around and manage folders in a desktop app, check the live preview,
 then write the result back and boot the console.
 
-**[Download the latest release](https://github.com/SalustianCreativeLabs/3DSort/releases/latest)**
-— a `.zip` with a single portable `.exe` for Windows, no installer and no Python needed.
+**[Download the latest release](https://github.com/SalustLab/3DSort/releases/latest)**:
+a `.zip` with a single portable `.exe` for Windows, and a `.zip` with the
+`3DSort.app` bundle for Apple Silicon Macs. No installer and no Python needed.
 
 ![The GRID tab: live console preview on the left, drag-and-drop grid of real game icons on the right](docs/images/grid.png)
 
@@ -113,7 +114,7 @@ python app.py --serve --mock  # synthetic data, no SD or keys needed
 ### Tests
 
 ```
-python -m pytest tests -q     # 151 tests
+python -m pytest tests -q     # 153 tests
 ```
 
 The suite runs on any machine. Tests that need real console keys skip
@@ -132,6 +133,29 @@ The result is a single portable `dist\3DSort.exe` with no installer. The UI,
 the fonts, the icon and the save3ds binary are bundled, so the app needs no
 network access at runtime. The icon itself is generated: run
 `python tools/make_icon.py` to redraw `ui/3dsort.ico` after changing it.
+
+## macOS (Apple Silicon)
+
+The release page has a `3DSort.app` zip built by GitHub Actions. The bundle is
+not notarized yet, so on first launch right-click the app and pick Open, or
+run `xattr -cr 3DSort.app` after unzipping (same idea as the SmartScreen
+notice on Windows).
+
+To build from source instead, install Python 3.10+ and Rust, then:
+
+```
+python3 -m venv .venv
+.venv/bin/pip install -r requirements-dev.txt
+tools/build_save3ds_macos.sh                       # native save3ds helper
+.venv/bin/python -m PyInstaller 3DSort.macos.spec  # dist/3DSort.app
+dist/3DSort.app/Contents/MacOS/3DSort --selftest   # exit code 0
+```
+
+SD cards mount under `/Volumes` and are auto-detected; `--sd /Volumes/<card>`
+overrides. Reading a real card was validated on macOS against a New 2DS XL
+(USA) by [@appleforever11](https://github.com/appleforever11). The write and
+inject cycle has not been hardware-tested from a Mac yet; the checklist in
+[docs/MACOS_TESTING.md](docs/MACOS_TESTING.md) covers how to test safely.
 
 ## Linux (run from source)
 
@@ -176,10 +200,11 @@ original container stays on the card for recovery.
 
 ## Status
 
-Beta. The core is covered by 151 tests, including round trips against a copy of
+Beta. The core is covered by 153 tests, including round trips against a copy of
 a real card, and the full cycle (write, NAND inject, restore) has been validated
 end to end on two different consoles from one region (N3DS, N3DSXL both USA). The app never writes without an automatic
-backup and an explicit confirmation.
+backup and an explicit confirmation. On macOS, the read path was additionally
+validated by a community contributor against a real New 2DS XL (USA).
 
 ## License
 
