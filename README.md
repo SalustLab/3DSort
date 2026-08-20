@@ -152,9 +152,11 @@ dist/3DSort.app/Contents/MacOS/3DSort --selftest   # exit code 0
 ```
 
 SD cards mount under `/Volumes` and are auto-detected; `--sd /Volumes/<card>`
-overrides. Reading a real card was validated on macOS against a New 2DS XL
-(USA) by [@appleforever11](https://github.com/appleforever11). The write and
-inject cycle has not been hardware-tested from a Mac yet; the checklist in
+overrides. The v1.1.0 release `.app` was validated on macOS Tahoe 26.6.2
+against a real New 2DS XL by
+[@appleforever11](https://github.com/appleforever11): reading and importing a
+real card works end to end. The write and inject cycle has not been
+hardware-tested from a Mac yet; the checklist in
 [docs/MACOS_TESTING.md](docs/MACOS_TESTING.md) covers how to test safely.
 
 ## Linux (run from source)
@@ -203,8 +205,9 @@ original container stays on the card for recovery.
 Beta. The core is covered by 153 tests, including round trips against a copy of
 a real card, and the full cycle (write, NAND inject, restore) has been validated
 end to end on two different consoles from one region (N3DS, N3DSXL both USA). The app never writes without an automatic
-backup and an explicit confirmation. On macOS, the read path was additionally
-validated by a community contributor against a real New 2DS XL (USA).
+backup and an explicit confirmation. On macOS, the v1.1.0 release app was
+validated by a community contributor on macOS Tahoe 26.6.2 against a real
+New 2DS XL (read and import; writes from a Mac are still untested).
 
 ## License
 
@@ -221,5 +224,5 @@ carries the same license.
 - [Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu) by Ryuzaki-MrL, whose
   "Unwrap all" feature revealed how the gift-wrap flags work
 - [@appleforever11](https://github.com/appleforever11) contributed the
-  macOS (Apple Silicon) support and validated the read path on a real
-  New 2DS XL from a Mac
+  macOS (Apple Silicon) support and validated the v1.1.0 release app on a
+  real New 2DS XL from a Mac (read and import)

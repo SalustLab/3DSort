@@ -581,8 +581,10 @@ dump → sort/reorder → write → inject → boot, including folder
 create/rename/delete with baptism numbers, NAND↔game swaps, bulk unwrap on a
 console that had never run the app, theme preservation via graft, gate 2
 aborting correctly when the HOME booted between write and inject, restore, and
-the multi-id0 card flow (§5.1). macOS (arm64, external contributor): READ
-validated on real hardware; **write/inject on macOS not hardware-validated**.
+the multi-id0 card flow (§5.1). macOS (arm64, external contributor): the
+v1.1.0 release `.app` (Actions build) validated on macOS Tahoe 26.6.2 against
+a real New 2DS XL, full read/import workflow — this also covers the macOS
+clean-machine smoke; **write/inject on macOS not hardware-validated**.
 The Windows exe was tested end to end (selftest, icons, date sort, native
 window, read-only autodetect of the real SD).
 
@@ -595,8 +597,8 @@ chain: it receives console keys and sits on the non-Windows lookup path); the
 **Operational warning**: `dist\3DSort.exe` does not update itself — always
 rebuild (`pyinstaller 3DSort.spec`) before asking for a hardware test.
 
-**Remaining for distribution**: smoke on a clean machine WITHOUT Python
-(mainly with WebView2 absent); write/inject validated from a Mac.
+**Remaining for distribution**: Windows smoke on a clean machine WITHOUT
+Python (mainly with WebView2 absent); write/inject validated from a Mac.
 
 **v2**: RULES tab (rule engine), THEMES/badges.
 
