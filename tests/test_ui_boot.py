@@ -79,6 +79,24 @@ def test_render_restores_the_scroll_of_the_scrollable_panes():
     assert body.index("restoreScroll(") < body.index("playFlip(")
 
 
+# ---- edge-scroll while dragging (issue #2) ----------------------------------
+
+def test_drag_near_grid_edge_scrolls_via_raf_loop():
+    """dragover stops firing while the pointer is stationary, so the scroll
+    must come from a rAF loop keyed off the last known Y, not per-event math.
+    The loop must exit via P.dragKey (dragend may never fire: drop re-renders
+    the drag source away) plus isConnected (the grid itself gets replaced)."""
+    loop = region("const edgeScroll", "requestAnimationFrame(edgeScroll)")
+    assert "P.dragKey === null" in loop and "isConnected" in loop
+    assert "scrollTop" in loop
+    over = region("grid.ondragover", "grid.ondrop")
+    assert "edgeY = e.clientY" in over
+    assert "requestAnimationFrame(edgeScroll)" in over
+    # scroll must work over gaps/page separators: Y is fed before the
+    # .item early-return
+    assert over.index("edgeY = e.clientY") < over.index('closest(".item")')
+
+
 # ---- setup screens: doing vs reading ---------------------------------------
 
 def test_wizard_and_guide_are_separate_functions():

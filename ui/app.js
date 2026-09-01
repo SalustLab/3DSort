@@ -529,7 +529,7 @@ function syncScreen() {
 // Button labels live here because instruction text refers to them by name. A
 // literal in prose plus a different literal on the button is how the wizard grew
 // a "press Verify below" under a button that said DONE.
-const VERSION = "v1.1.0";
+const VERSION = "v1.1.1";
 
 const BTN_IMPORT = "Import layout from SD";
 const BTN_VERIFY_INJECT = "Verify";
@@ -854,9 +854,25 @@ function bind() {
   if (grid) {
     const clearMarks = () => grid.querySelectorAll(".drop-into,.swap-with").forEach(x =>
       x.classList.remove("drop-into", "swap-with"));
+    // Edge-scroll while dragging (issue #2). dragover stops firing while the
+    // pointer sits still, so the scroll runs on a rAF loop keyed off the last
+    // known Y. The loop exits when the drag is over: P.dragKey is nulled on
+    // drop even when dragend never fires (drop re-renders the source node
+    // away), and isConnected catches this grid being replaced by a render.
+    let edgeY = null; // null = loop not running
+    const edgeScroll = () => {
+      if (P.dragKey === null || !grid.isConnected) { edgeY = null; return; }
+      const EDGE = 60; // px hot zone at top/bottom; max speed EDGE/3 px per frame
+      const r = grid.getBoundingClientRect();
+      if (edgeY < r.top + EDGE) grid.scrollTop -= (r.top + EDGE - edgeY) / 3;
+      else if (edgeY > r.bottom - EDGE) grid.scrollTop += (edgeY - r.bottom + EDGE) / 3;
+      requestAnimationFrame(edgeScroll);
+    };
     grid.ondragover = e => {
       if (P.dragKey === null) return;
       e.preventDefault();
+      if (edgeY === null) requestAnimationFrame(edgeScroll);
+      edgeY = e.clientY;
       clearMarks();
       const t = e.target.closest(".item");
       if (!t || t.classList.contains("dragging")) return;
