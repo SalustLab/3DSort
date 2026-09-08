@@ -51,8 +51,10 @@ F:\Projects\3DSort\
 ├── requirements-dev.txt    ← -r requirements.txt + pytest + pyinstaller
 ├── .github/workflows/macos-release.yml ← builds the .app on a macOS arm64 runner
 ├── .github/workflows/linux-release.yml ← builds the tar.gz on ubuntu-24.04 (glibc 2.39 floor)
-├── docs/images/            ← README screenshots (--mock only: NO real console
-│                             data; the `/*.png` in .gitignore is root-anchored)
+├── docs/images/            ← README screenshots. grid.png/badges.png are the
+│                             owner's own card (owner decision, 2026-09-08: no
+│                             id0/serial visible); the rest is --mock. The
+│                             `/*.png` in .gitignore is root-anchored
 ├── docs/MACOS_TESTING.md   ← safe macOS test checklist
 ├── docs/LINUX_TESTING.md   ← safe Linux test checklist
 ├── prototype/              ← visual reference mockup (not production code)
@@ -592,7 +594,8 @@ SD + a Playwright step if it has a UI gesture.
 
 **Shipped: v1.2.0** (badges + exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
 205 tests. Version lives in `VERSION` in ui/app.js (single source). README
-screenshots come from `--mock` only (§3.4: real libraries leak console data).
+screenshots come from `--mock` (§3.4: real libraries leak console data), except
+the two v1.2.0 badge shots the owner captured on their own card.
 
 **Hardware-validated** (dev console + a second New 3DS, both USA): full cycle
 dump → sort/reorder → write → inject → boot, including folder
