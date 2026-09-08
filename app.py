@@ -14,16 +14,22 @@ import struct
 import sys
 import tempfile
 import time
+import threading
+import functools
+import inspect
 from pathlib import Path
 
 from core.icons import (cache_index, icon_png_b64, smdh_entry, smdh_short_name,
                         twl_icon_png_b64, twl_short_name)
 from core.launcher import Launcher, parse as parse_launcher
-from core.savedata import SaveData, assign_positions
+from core.savedata import SaveData
 from core.sdcard import (NAND_SAVE_IDS, SAVE3DS_NAME, Save3ds, find_console,
                          find_sd_drive, id0_from_movable, list_3ds_roots)
 from core.store import Backups, Staging
 from core import titledates
+from core import badges, layout
+from core.layout_api import LayoutApi
+from core.write_api import WriteApi
 
 ROOT = Path(__file__).parent
 UI = ROOT / "ui"
@@ -33,13 +39,30 @@ APP_DIR = Path.home() / "3DSort"
 LAUNCHER_KEYS = ("nand_pos", "nand_folder", "folder_defs", "cart_pos")
 
 
-class Api:
+def _serialized_api(cls):
+    """Serialize both transports, preserving signatures for pywebview's bridge."""
+    def wrap(method):
+        @functools.wraps(method)
+        def locked(self, *args, **kwargs):
+            with self._operation_lock:
+                return method(self, *args, **kwargs)
+        locked.__signature__ = inspect.signature(method)
+        return locked
+    for name in dir(cls):
+        if not name.startswith("_") and callable(getattr(cls, name)):
+            setattr(cls, name, wrap(getattr(cls, name)))
+    return cls
+
+
+@_serialized_api
+class Api(LayoutApi, WriteApi):
     """Single layer consumed by the pywebview js_api bridge and by --serve mode."""
 
     def __init__(self, save3ds: Save3ds, sd_root: Path | None, workdir: Path,
                  backups: Backups, launcher: Path | None = None,
                  container: Path | None = None):
         self.save3ds = save3ds
+        self._operation_lock = threading.RLock()
         self.sd_root = sd_root
         self.workdir = Path(workdir)
         self.backups = backups
@@ -54,6 +77,11 @@ class Api:
         self._launcher_raw = None      # Launcher.dat bytes as loaded
         self._launcher_baseline = None  # launcher sub-state at load (for dirty check)
         self._container_sha = None     # container sha at parse (anti-stale gate)
+        self._badges = None
+        self._badge_error = None
+        self._badge_writable = False
+        self._badge_source = None
+        self._badge_sources = {}
 
     # ---- lifecycle -------------------------------------------------
     def import_sd(self):
@@ -69,24 +97,45 @@ class Api:
         # only way to tell the live id0 from leftovers of older states/consoles
         sd_id0 = self._sd_movable_id0()
         self.console = find_console(self.sd_root, prefer_id0=sd_id0)
+        if self._recovery_info():
+            journal = json.loads((self._transaction_dir() / "journal.json").read_text("utf-8"))
+            card_error = self._connected_card_error(journal)
+            if card_error:
+                return {"error": card_error}
         # script goes to the SD BEFORE requiring keys: the dump itself is what
         # brings boot9/movable/container for the app to read (no manual copy)
         self._publish_dump_script()
         err = self._resolve_keys()
         if err:
             return {"error": err}
+        if self._recovery_info():
+            if self.staging is None:
+                def integer_keys(value):
+                    if isinstance(value, dict):
+                        return {int(k) if k.lstrip("-").isdigit() else k: integer_keys(v) for k, v in value.items()}
+                    if isinstance(value, list):
+                        return [integer_keys(v) for v in value]
+                    return value
+                self._load_badges()
+                self._load(self._transaction_dir() / "base_home")
+                self.staging = Staging(integer_keys(journal["state"]))
+                self.staging.staged = ["Interrupted write"]
+            return self.get_state()
         self._check_inject_receipt()
         ext = self.workdir / "extract"
         if ext.exists():
             import shutil
             shutil.rmtree(ext)
         self.save3ds.extract(self.console.extdata_id, self.sd_root, ext)
+        self._load_badges()
         self._load(ext)
+        self._prune_badge_sources()
         return self.get_state()
 
     def _load(self, ext: Path):
         raw = (ext / "user" / "SaveData.dat").read_bytes()
         sd = SaveData(raw)
+        self._home_baseline = self._layout_signature(raw)
         cached = (ext / "user" / "CacheD.dat").read_bytes()
         idx = cache_index((ext / "user" / "Cache.dat").read_bytes())
         self._names, self._icons = {}, {}
@@ -98,6 +147,10 @@ class Api:
                 self._icons[tid] = icon_png_b64(e) or twl_icon_png_b64(e)
         order = [e.slot for e in sorted(sd.entries, key=lambda e: e.pos)]
         st = {"order": order,
+              "save_raw": raw.hex(),
+              "game_pos": {e.slot: e.pos for e in sd.entries},
+              "badge_layout": {},   # filled below, once the folder tiles are known
+              "badge_source": self._badge_source,
               "folders": {e.slot: e.folder for e in sd.entries},
               "tids": {e.slot: e.tid for e in sd.entries},
               "nand_tids": {}, "nand_pos": {}, "nand_folder": {},
@@ -112,6 +165,12 @@ class Api:
                                  for f in lfolders}
             st["cart_pos"] = cart
         self._launcher_raw = launcher_raw
+        st["folders_known"] = launcher_raw is not None
+        if self._badges:
+            try:
+                st["badge_layout"] = self._badge_layout_from_file(self._badges.layout, st["folder_defs"])
+            except ValueError as exc:
+                self._badge_error = str(exc)   # collection stays visible, card read-only
         self._launcher_baseline = copy.deepcopy({k: st[k] for k in LAUNCHER_KEYS})
         self.staging = Staging(st)
         # With a launcher, EVERY occupant is known (games by tid+pos; NAND,
@@ -133,10 +192,10 @@ class Api:
         region = self.console.region if self.console else "USA"
         return NAND_SAVE_IDS[region]
 
-    def _publish_dump_script(self):
+    def _publish_dump_script(self, root=None):
         """Publishes 3DSort_dump.gm9 to the SD on every import. It is what spits
         container + keys into 0:/3DSort: the user never copies a file by hand."""
-        scripts = Path(self.sd_root) / "gm9" / "scripts"
+        scripts = Path(root or self.sd_root) / "gm9" / "scripts"
         scripts.mkdir(parents=True, exist_ok=True)
         (scripts / "3DSort_dump.gm9").write_text(
             gm9_dump_script(), encoding="ascii", newline="\n")
@@ -225,17 +284,6 @@ class Api:
         return None
 
     # ---- reads -------------------------------------------------------
-    def _reserved_now(self, st) -> dict:
-        """Dynamic reservations: ownerless holes + STAGED NAND/folder/cart positions."""
-        res = {c: set(ps) for c, ps in self._unknown_holes.items()}
-        for slot, p in st["nand_pos"].items():
-            res.setdefault(st["nand_folder"][slot], set()).add(p)
-        for d in st["folder_defs"].values():
-            res.setdefault(-1, set()).add(d["pos"])
-        if st["cart_pos"] is not None:
-            res.setdefault(-1, set()).add(st["cart_pos"])
-        return res
-
     def _launcher_dirty(self, st) -> bool:
         return any(st[k] != self._launcher_baseline[k] for k in LAUNCHER_KEYS)
 
@@ -245,8 +293,9 @@ class Api:
             if "error" in r:
                 return r
         st = self.staging.state
+        self._select_badge_source(st)
         # same assignment write_sd will do: position per container, skipping reserved
-        pos_map = assign_positions(st["order"], st["folders"], self._reserved_now(st))
+        pos_map = st["game_pos"]
         items = []
         for slot in st["order"]:
             tid = st["tids"][slot]
@@ -290,6 +339,10 @@ class Api:
             "sd": self._sd_info(),
             "backups_dir": str(self.backups.root),
             "history": self.backups.history()[::-1],
+            "spatialWritable": self._launcher_raw is not None and not self._badge_error,
+            "badges": self._badge_state(st),
+            "recovery": self._recovery_info(),
+            "layoutErrors": layout.issues(st, self._unknown_holes),
         }
 
     def get_setup_state(self):
@@ -331,7 +384,25 @@ class Api:
 
     # ---- mutations (staged) ----------------------------------------------
     def _commit(self, label, **changes):
-        self.staging.commit(label, {**self.staging.state, **changes})
+        if self._recovery_info():
+            raise ValueError("Finish or restore the interrupted write in SYNC first.")
+        if self._badge_error:
+            raise ValueError(self._badge_error)
+        st = {**self.staging.state, **changes}
+        self._select_badge_source(st)
+        new_issues = set(layout.issues(st, self._unknown_holes))
+        old_issues = set(layout.issues(self.staging.state, self._unknown_holes))
+        if new_issues - old_issues:
+            raise ValueError(sorted(new_issues - old_issues)[0])
+        if self._badges:
+            self._badges.validate(st["badge_layout"])
+            if any(b.get("decoration") is not None and b["decoration"] not in st["folder_defs"]
+                   for b in st["badge_layout"].values()):
+                raise ValueError("Badge decoration references a missing folder.")
+        st["order"] = sorted(st["game_pos"], key=lambda s: (st["folders"][s], st["game_pos"][s]))
+        if st == self.staging.state:
+            return self.get_state()
+        self.staging.commit(label, st)
         return self.get_state()
 
     @staticmethod
@@ -343,7 +414,7 @@ class Api:
             return ("cart", None)
         if isinstance(k, str) and ":" in k:
             kind, _, n = k.partition(":")
-            if kind in ("g", "n", "f") and n.lstrip("-").isdigit():
+            if kind in ("g", "n", "f", "b") and n.lstrip("-").isdigit():
                 return (kind, int(n))
         raise ValueError(f"invalid entity key: {k!r}")
 
@@ -352,17 +423,6 @@ class Api:
             raise ValueError("System layout is read-only. Dump the HOME menu "
                              "system save first (see the SYNC tab).")
 
-    def _entity_pos(self, st) -> dict:
-        """{(kind, n): (container, pos)} for every staged entity."""
-        pos_map = assign_positions(st["order"], st["folders"], self._reserved_now(st))
-        out = {("g", s): (st["folders"][s], pos_map[s]) for s in st["order"]}
-        for slot, p in st["nand_pos"].items():
-            out[("n", slot)] = (st["nand_folder"][slot], p)
-        for fid, d in st["folder_defs"].items():
-            out[("f", fid)] = (-1, d["pos"])
-        if st["cart_pos"] is not None:
-            out[("cart", None)] = (-1, st["cart_pos"])
-        return out
 
     def _label(self, st, key) -> str:
         kind, n = key
@@ -372,98 +432,20 @@ class Api:
             return self._names.get(st["nand_tids"][n], "System")
         if kind == "f":
             return st["folder_defs"][n]["name"]
+        if kind == "b":
+            return self._badges.catalog[st["badge_layout"][n]["badge"]]["name"]
         return "Game Card"
 
-    def _next_free(self, st, container: int, taken=()) -> int:
-        used = {p for c, p in self._entity_pos(st).values() if c == container}
-        used |= self._unknown_holes.get(container, set()) | set(taken)
-        return next(p for p in range(len(used) + 1) if p not in used)
 
-    def move_item(self, slot: int, before_slot: int | None):
-        order = [s for s in self.staging.state["order"] if s != slot]
-        i = order.index(before_slot) if before_slot is not None else len(order)
-        order.insert(i, slot)
-        tid = self.staging.state["tids"][slot]
-        return self._commit(f"Moved {self._names.get(tid, slot)}", order=order)
 
-    def swap_items(self, a, b):
-        """Exact place swap between two tiles of any type: nothing else moves."""
-        ka, kb = self._key(a), self._key(b)
-        st = self.staging.state
-        if ka[0] == "g" and kb[0] == "g":
-            slot_a, slot_b = ka[1], kb[1]
-            order = list(st["order"])
-            i, j = order.index(slot_a), order.index(slot_b)
-            order[i], order[j] = order[j], order[i]
-            folders = dict(st["folders"])
-            folders[slot_a], folders[slot_b] = folders[slot_b], folders[slot_a]
-            return self._commit(
-                f"Swapped {self._label(st, ka)} <-> {self._label(st, kb)}",
-                order=order, folders=folders)
-        self._require_writable()
-        pos_of = self._entity_pos(st)
-        (ca, pa), (cb, pb) = pos_of[ka], pos_of[kb]
-        for key, dest in ((ka, cb), (kb, ca)):
-            if key[0] in ("f", "cart") and dest != -1:
-                raise ValueError("Folders and the Game Card can only sit on the home grid.")
-        changes, desired = {}, {}
-        for key, cont, pos in ((ka, cb, pb), (kb, ca, pa)):
-            self._place(st, changes, desired, key, cont, pos)
-        if desired:
-            self._rebuild_order(st, changes, desired, pos_of)
-        return self._commit(
-            f"Swapped {self._label(st, ka)} <-> {self._label(st, kb)}", **changes)
 
-    def _place(self, st, changes, desired, key, cont, pos):
-        kind, n = key
-        if kind == "g":
-            desired[n] = (cont, pos)
-        elif kind == "n":
-            changes.setdefault("nand_pos", dict(st["nand_pos"]))[n] = pos
-            changes.setdefault("nand_folder", dict(st["nand_folder"]))[n] = cont
-        elif kind == "f":
-            fd = changes.setdefault("folder_defs", copy.deepcopy(st["folder_defs"]))
-            fd[n]["pos"] = pos
-        else:
-            changes["cart_pos"] = pos
 
-    def _rebuild_order(self, st, changes, desired, pos_of):
-        """Rebuilds order/folders so assign_positions reproduces the desired
-        positions. Valid because every hole below the maximum is reserved: the set
-        of free positions per container is exactly the set occupied by the games."""
-        base = {s: desired.get(s, pos_of[("g", s)]) for s in st["order"]}
-        changes["order"] = [s for s, _ in sorted(base.items(),
-                                                 key=lambda kv: (kv[1][1], kv[0]))]
-        folders = dict(st["folders"])
-        for s, (cont, _) in desired.items():
-            folders[s] = cont
-        changes["folders"] = folders
 
-    def set_folder(self, key, folder: int):
-        st = self.staging.state
-        kind, n = self._key(key)
-        if folder != -1 and st["folder_defs"] and folder not in st["folder_defs"]:
-            raise ValueError(f"Folder {folder} does not exist.")
-        verb = "Removed from folder" if folder == -1 else "Moved into folder"
-        if kind == "g":
-            folders = dict(st["folders"])
-            folders[n] = folder
-            return self._commit(f"{verb}: {self._label(st, (kind, n))}", folders=folders)
-        if kind == "n":
-            self._require_writable()
-            nand_pos = dict(st["nand_pos"])
-            nand_folder = dict(st["nand_folder"])
-            nand_folder[n] = folder
-            # explicit position in the destination container: lowest free
-            probe = {**st, "nand_pos": {k: v for k, v in nand_pos.items() if k != n},
-                     "nand_folder": nand_folder}
-            nand_pos[n] = self._next_free(probe, folder)
-            return self._commit(f"{verb}: {self._label(st, (kind, n))}",
-                                nand_pos=nand_pos, nand_folder=nand_folder)
-        raise ValueError("Folders and the Game Card cannot go inside folders.")
 
     # ---- folders (lifecycle, staged) -------------------------------------
-    def folder_create(self, name=None):
+    def folder_create(self, name=None, decoration=None):
+        """New folder at the end of the home grid; `decoration` = catalog id of a
+        single-piece badge to use as its icon, staged in the same change."""
         self._require_writable()
         st = self.staging.state
         if name is not None and name != "":
@@ -483,8 +465,12 @@ class Api:
             raise ValueError("Home grid is full.")
         defs = copy.deepcopy(st["folder_defs"])
         defs[fid] = {"pos": pos, "name": name, "rows": 2}
-        return self._commit(f"Created folder {name}" if name != "New folder"
-                            else "Created folder", folder_defs=defs)
+        label = f"Created folder {name}" if name != "New folder" else "Created folder"
+        changes = {"folder_defs": defs}
+        if decoration is not None:
+            changes["badge_layout"] = self._decoration_layout(st, fid, decoration)
+            label += f" with icon {self._badges.catalog[decoration]['name']}"
+        return self._commit(label, **changes)
 
     def folder_rename(self, fid: int, name: str):
         self._require_writable()
@@ -498,41 +484,17 @@ class Api:
         defs[fid]["name"] = name
         return self._commit(f"Renamed folder {old} to {name}", folder_defs=defs)
 
-    def _return_members_home(self, st, fid, changes):
-        """Folder members return to home: games at the end of the order, NAND after."""
-        game_members = [s for s in st["order"] if st["folders"][s] == fid]
-        folders = dict(st["folders"])
-        for s in game_members:
-            folders[s] = -1
-        changes["folders"] = folders
-        changes["order"] = ([s for s in st["order"] if s not in game_members]
-                            + game_members)
-        nand_members = [s for s, f in st["nand_folder"].items() if f == fid]
-        if nand_members:
-            nand_pos = dict(st["nand_pos"])
-            nand_folder = dict(st["nand_folder"])
-            taken = []
-            for s in nand_members:
-                nand_folder[s] = -1
-                probe = {**st, **changes,
-                         "nand_pos": {k: v for k, v in nand_pos.items()
-                                      if k not in nand_members},
-                         "nand_folder": nand_folder}
-                nand_pos[s] = self._next_free(probe, -1, taken=taken)
-                taken.append(nand_pos[s])
-            changes["nand_pos"] = nand_pos
-            changes["nand_folder"] = nand_folder
 
-    def folder_empty(self, fid: int):
+    def folder_empty(self, fid: int, home_rows=4):
         self._require_writable()
         st = self.staging.state
         if fid not in st["folder_defs"]:
             raise ValueError(f"Folder {fid} does not exist.")
         changes = {}
-        self._return_members_home(st, fid, changes)
+        self._return_members_home(st, fid, changes, home_rows)
         return self._commit(f"Emptied folder {st['folder_defs'][fid]['name']}", **changes)
 
-    def folder_delete(self, fid: int):
+    def folder_delete(self, fid: int, home_rows=4):
         self._require_writable()
         st = self.staging.state
         if fid not in st["folder_defs"]:
@@ -542,41 +504,28 @@ class Api:
         # defs without the folder BEFORE repositioning members: the freed tile
         # joins the compaction and members take the lowest real positions
         changes = {"folder_defs": defs}
-        self._return_members_home(st, fid, changes)
+        self._return_members_home(st, fid, changes, home_rows)
         return self._commit(f"Deleted folder {name}", **changes)
 
-    def sort_preset(self, preset: str):
-        labels = {"az": "A → Z", "za": "Z → A",
-                  "date_asc": "Release date ↑", "date_desc": "Release date ↓"}
-        if preset not in labels:
-            raise ValueError(f"Unknown sort preset: {preset}")
-        st = self.staging.state
-        if preset in ("az", "za"):
-            keyed = [(self._names.get(st["tids"][s], ""), s) for s in st["order"]]
-            order = [s for _, s in sorted(keyed, key=lambda t: t[0].lower(),
-                                          reverse=(preset == "za"))]
-        else:
-            # Titles without a known release date go LAST in both directions.
-            dated, undated = [], []
-            for s in st["order"]:
-                d = titledates.release_date(st["tids"][s])
-                (dated if d else undated).append((d, s))
-            dated.sort(key=lambda t: t[0], reverse=(preset == "date_desc"))
-            order = [s for _, s in dated] + [s for _, s in undated]
-        return self._commit(f"Sorted: {labels[preset]}", order=order)
 
     def undo(self):
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
         if self.staging._undo:
             self.staging.undo()
         return self.get_state()
 
     def redo(self):
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
         if self.staging._redo:
             self.staging.redo()
         return self.get_state()
 
     def reset_staging(self):
         """Discards every staged change (each one recoverable via redo)."""
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
         while self.staging._undo:
             self.staging.undo()
         return self.get_state()
@@ -594,105 +543,57 @@ class Api:
             extra["__nand__/Launcher.dat"] = self._launcher_raw
         if self._launcher_writable and self.container_path:
             extra["__nand__/homemenu_save.bin"] = Path(self.container_path)
+        badge_dir = self.workdir / "badges"
+        if badge_dir.exists():
+            extra.update({"__badges__/" + p.relative_to(badge_dir).as_posix(): p
+                          for p in badge_dir.rglob("*")})
         return extra
 
     def restore_backup(self, backup_id: str):
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
         import shutil
-        ext = self.workdir / "extract"
-        self.backups.restore(backup_id, ext)
-        restored_launcher = None
-        nand_dir = ext / "__nand__"
-        if nand_dir.exists():  # remove from extract BEFORE the next import to the SD
-            lp = nand_dir / "Launcher.dat"
-            restored_launcher = lp.read_bytes() if lp.exists() else None
-            shutil.rmtree(nand_dir)
-        # safety belt for legacy backups without directory entries in the zip: the
-        # extdata must never reach the SD without boss/ (HOME would rebuild the
-        # SaveData, Phase 0C)
-        (ext / "boss").mkdir(exist_ok=True)
-        self._load(ext)
-        # a restore is a new state relative to the SD: must stay staged for the WRITE
-        if restored_launcher and self._launcher_writable:
-            entries, lfolders, cart = parse_launcher(restored_launcher)
-            self.staging.commit(f"Restored backup {backup_id}", {
-                **self.staging.state,
-                "nand_tids": {e.slot: e.tid for e in entries},
-                "nand_pos": {e.slot: e.pos for e in entries},
-                "nand_folder": {e.slot: e.folder for e in entries},
-                "folder_defs": {f.id: {"pos": f.pos, "name": f.name, "rows": f.rows}
-                                for f in lfolders},
-                "cart_pos": cart,
-            })
-        else:
-            self.staging.commit(f"Restored backup {backup_id}", self.staging.state)
+        # Validate in a private work directory before touching the active extract
+        # or staging. Raw source buffers are part of the snapshot, so undo also
+        # restores the source used for serialization.
+        with tempfile.TemporaryDirectory(dir=self.workdir, prefix="restore-") as temp:
+            ext = Path(temp) / "home"
+            self.backups.restore(backup_id, ext)
+            raw = (ext / "user" / "SaveData.dat").read_bytes()
+            sd = SaveData(raw)
+            restored = copy.deepcopy(self.staging.state)
+            restored.update(save_raw=raw.hex(),
+                            game_pos={e.slot: e.pos for e in sd.entries},
+                            folders={e.slot: e.folder for e in sd.entries},
+                            tids={e.slot: e.tid for e in sd.entries},
+                            order=[e.slot for e in sorted(sd.entries, key=lambda e: (e.folder, e.pos))])
+            nand_dir = ext / "__nand__"
+            if (nand_dir / "Launcher.dat").exists() and self._launcher_writable:
+                entries, folders, cart = parse_launcher((nand_dir / "Launcher.dat").read_bytes())
+                restored.update(nand_tids={e.slot: e.tid for e in entries},
+                                nand_pos={e.slot: e.pos for e in entries},
+                                nand_folder={e.slot: e.folder for e in entries},
+                                folder_defs={f.id: {"pos": f.pos, "name": f.name, "rows": f.rows} for f in folders},
+                                cart_pos=cart)
+            badge_dir = ext / "__badges__"
+            if badge_dir.exists():
+                self._require_badges()
+                candidate = badges.Badges((badge_dir / "user" / "BadgeData.dat").read_bytes(),
+                                          (badge_dir / "user" / "BadgeMngFile.dat").read_bytes())
+                self._badges = candidate
+                self._remember_badges(badge_dir)
+                restored.update(badge_source=self._badge_source,
+                                badge_layout=self._badge_layout_from_file(candidate.layout, restored["folder_defs"]))
+            for namespace in ("__nand__", "__badges__", "__layout__"):
+                path = ext / namespace
+                if path.exists():
+                    shutil.rmtree(path)
+            (ext / "boss").mkdir(exist_ok=True)
+            shutil.copytree(ext, self.workdir / "extract", dirs_exist_ok=True)
+            self.staging.commit(f"Restored backup {backup_id}", restored)
         return self.get_state()
 
-    def write_sd(self):
-        """Applies the staging to SaveData.dat (and, if needed, Launcher.dat) and
-        imports. Backup first, always. All-or-nothing: both files come from the SAME
-        snapshot; if the launcher branch fails, staging is NOT cleared and the retry
-        is idempotent."""
-        n = len(self.staging.staged)
-        if n == 0:
-            return {"error": "nothing staged"}
-        st = self.staging.state
-        dirty = self._launcher_dirty(st)
-        if dirty:
-            self._require_writable()
-            cur = hashlib.sha256(Path(self.container_path).read_bytes()).hexdigest()
-            if cur != self._container_sha:
-                return {"error": "System save changed on disk. Re-dump it in "
-                                 "GodMode9 and re-import before writing."}
-            # the gate-2 anchor only counts if it came from a fresh GM9 dump
-            # (cp --hash). The copy promoted post-inject has no .sha on purpose:
-            # any HOME boot drifts volatile NAND bytes (observed in Phase 0C)
-            sha_file = Path(str(self.container_path) + ".sha")
-            if not sha_file.exists() or sha_file.read_bytes() != bytes.fromhex(cur):
-                return {"error": "No fresh GodMode9 dump of the system save "
-                                 "(missing or stale homemenu_save.bin.sha). Run "
-                                 "3DSort_dump in GodMode9, then Import from SD."}
-        ext = self.workdir / "extract"
-        self.backups.create(ext, kind="auto", note=f"before writing {n} changes",
-                            extra=self._backup_extra())
-        sav_path = ext / "user" / "SaveData.dat"
-        sd = SaveData(sav_path.read_bytes())
-        # theme/settings (0x13B8+) always from the CURRENT card version: the
-        # workdir extract may predate changes made on the console (e.g. theme)
-        # and neither restore nor write may regress them. Best-effort: with no
-        # readable SD, write with what we have.
-        try:
-            import shutil
-            fresh = self.workdir / "write_base"
-            if fresh.exists():
-                shutil.rmtree(fresh)
-            self.save3ds.extract(self.console.extdata_id, self.sd_root, fresh)
-            sd.graft_tail((fresh / "user" / "SaveData.dat").read_bytes())
-        except Exception:
-            pass
-        # folders first: apply_order distributes positions per the CURRENT container
-        for slot, folder in st["folders"].items():
-            sd.set_folder(int(slot), folder)
-        sd.apply_order(list(st["order"]), reserved=self._reserved_now(st))
-        # always unwrap: 0 in the status array undoes the gift box on every
-        # icon (Cthulhu's mechanism); the console re-marks "new" if it wants
-        sd.set_all_status(0)
-        # gate 0B: a new folder gets its number = current Launcher counter
-        # (same source _write_launcher increments; delete leaves an orphan)
-        new_fids = sorted(set(st["folder_defs"]) -
-                          set(self._launcher_baseline["folder_defs"]))
-        if new_fids and self._launcher_raw:
-            n0 = Launcher(self._launcher_raw).next_folder_number
-            for i, fid in enumerate(new_fids):
-                sd.set_folder_number(fid, n0 + i)
-        sav_path.write_bytes(sd.serialize())
-        self.save3ds.import_(self.console.extdata_id, self.sd_root, ext)
-        if dirty:
-            self._write_launcher(st, n)
-        self.staging.clear()
-        self._launcher_baseline = copy.deepcopy({k: st[k] for k in LAUNCHER_KEYS})
-        return self.get_state()
-
-    def _write_launcher(self, st, n_changes: int):
+    def _write_launcher(self, st, n_changes: int, destination=None):
         """Edits the Launcher.dat inside the container and publishes the inject
         payload to the SD (homemenu_save_new.bin + .sha + GM9 scripts). The real
         NAND only changes when the USER runs the inject script in GodMode9."""
@@ -723,20 +624,23 @@ class Api:
         (out / "Launcher.dat").write_bytes(ln.serialize())
         self.save3ds.nand_import(save_id, nand, out)
         new_container = Save3ds.nand_container(nand, save_id)
-        sd3 = Path(self.sd_root) / "3DSort"
+        destination = Path(destination or self.sd_root)
+        sd3 = destination / "3DSort"
         sd3.mkdir(parents=True, exist_ok=True)
         payload = sd3 / "homemenu_save_new.bin"
         shutil.copy2(new_container, payload)
         digest = hashlib.sha256(payload.read_bytes()).digest()
         (sd3 / "homemenu_save_new.bin.sha").write_bytes(digest)
-        self._publish_dump_script()
-        scripts = Path(self.sd_root) / "gm9" / "scripts"
+        self._publish_dump_script(destination)
+        scripts = destination / "gm9" / "scripts"
         (scripts / "3DSort_inject.gm9").write_text(
             gm9_inject_script(self.console.id0, save_id),
             encoding="ascii", newline="\n")
-        self._pending_path().write_text(json.dumps({
+        marker = destination / "pending_inject.json" if destination != Path(self.sd_root) else self._pending_path()
+        marker.write_text(json.dumps({
             "sha": digest.hex(), "when": time.strftime("%Y-%m-%d %H:%M:%S"),
-            "changes": n_changes}), encoding="utf-8")
+            "changes": n_changes,
+            "badgeDependent": bool(st.get("badge_layout") or self._badge_baseline)}), encoding="utf-8")
 
     # ---- pending inject (NAND) -------------------------------------------
     def _pending_path(self) -> Path:
@@ -788,6 +692,8 @@ class Api:
              "3DSort_inject.gm9").unlink(missing_ok=True)
 
     def verify_inject(self):
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
         if self._pending_inject_info() is None:
             return self.get_state()
         if self._check_inject_receipt():
@@ -797,6 +703,8 @@ class Api:
 
     def confirm_inject(self):
         """Manual override: the user vouches they injected without a receipt."""
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
         if self._pending_inject_info() is not None and self.sd_root is not None:
             sd3 = Path(self.sd_root) / "3DSort"
             self._promote_payload(sd3)
@@ -809,6 +717,10 @@ class Api:
         script and the marker. The SD layout already written stays (the console
         tolerates a new SaveData with the old launcher). The dump anchor goes too,
         so the next launcher write demands a fresh 3DSort_dump."""
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write first."}
+        if (self._pending_inject_info() or {}).get("badgeDependent"):
+            return {"error": "This injection is part of a badge layout. Complete and verify the injection before restoring a backup; cancelling could leave badges overlapping system items."}
         if self._pending_inject_info() is None:
             return {"error": "No pending inject to cancel."}
         if self.sd_root is not None:
@@ -839,6 +751,8 @@ class Api:
         return {"drives": [{"root": r, "current": r == cur} for r in roots]}
 
     def set_sd_root(self, path):
+        if self._recovery_info() and Path(path).resolve() != Path(self.sd_root).resolve():
+            return {"error": "Recover the interrupted write before switching cards."}
         p = Path(path)
         if not (p / "Nintendo 3DS").is_dir():
             return {"error": f"No 'Nintendo 3DS' folder found in {path}"}
@@ -947,6 +861,7 @@ echo "Injected. You can boot the HOME menu now."
 
 # ---- mock: same Api, fake crypto ---------------------------------------------
 class FakeSave3ds(Save3ds):
+    synthetic = True
     """Simulates extract/import by copying an already 'decrypted' extdata tree.
     On the NAND channel, the mock 'container' is a file whose bytes ARE the Launcher.dat."""
 
@@ -955,11 +870,15 @@ class FakeSave3ds(Save3ds):
 
     def extract(self, extdata_id, sd_root, out_dir):
         import shutil
-        shutil.copytree(self.plain, out_dir, dirs_exist_ok=True)
+        source = self.plain.parent / "badge_plain" if extdata_id == badges.EXTDATA_ID else self.plain
+        shutil.copytree(source, out_dir, dirs_exist_ok=True)
 
     def import_(self, extdata_id, sd_root, src_dir):
         import shutil
-        shutil.copytree(src_dir, self.plain, dirs_exist_ok=True)
+        dest = self.plain.parent / "badge_plain" if extdata_id == badges.EXTDATA_ID else self.plain
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(src_dir, dest, dirs_exist_ok=True)
 
     def build_nand_tree(self, workdir, container, save_id):
         import shutil
@@ -1100,15 +1019,24 @@ def make_mock_launcher(path: Path):
 
 
 def build_api(mock: bool, sd_root: Path | None = None,
-              no_launcher: bool = False) -> Api:
+              no_launcher: bool = False, mock_badges: bool = False) -> Api:
     if mock:
         tmp = Path(tempfile.mkdtemp(prefix="3dsort-mock-"))
+        # Every mock carries a 16 MB synthetic badge collection: one test session
+        # left 54 GB of these behind. Remove the tree when the process exits.
+        import atexit
+        import shutil
+        atexit.register(shutil.rmtree, tmp, ignore_errors=True)
         plain = tmp / "plain"
         make_mock_extdata(plain)
         # fake SD tree so the real find_console flow works
         fake_sd = tmp / "sd"
         (fake_sd / "Nintendo 3DS" / ("0" * 32) / ("1" * 32) / "extdata" /
          "00000000" / "0000008f").mkdir(parents=True)
+        if mock_badges:
+            badges.make_mock_badges(tmp / "badge_plain")
+            (fake_sd / "Nintendo 3DS" / ("0" * 32) / ("1" * 32) / "extdata" /
+             "00000000" / "000014d1").mkdir()
         container = None
         if not no_launcher:
             # mock container = Launcher.dat bytes (see FakeSave3ds)
@@ -1193,6 +1121,8 @@ def selftest() -> int:
     titledates table just turns date sorting into a no-op)."""
     checks = {
         "ui/index.html": (UI / "index.html").is_file(),
+        "ui/layout.js": (UI / "layout.js").is_file(),
+        "ui/layout.css": (UI / "layout.css").is_file(),
         f"tools/save3ds/{SAVE3DS_NAME}": (ROOT / "tools" / "save3ds" / SAVE3DS_NAME).is_file(),
         "core/titledates.json.gz": len(titledates._load()) > 0,
     }
@@ -1207,7 +1137,7 @@ def main():
         sys.exit(selftest())
     sd = Path(args[args.index("--sd") + 1]) if "--sd" in args else None
     api = build_api(mock="--mock" in args, sd_root=sd,
-                    no_launcher="--no-launcher" in args)
+                    no_launcher="--no-launcher" in args, mock_badges="--mock-badges" in args)
     if "--serve" in args:
         port = next((int(a) for a in args if a.isdigit()), 8347)
         serve(api, port)

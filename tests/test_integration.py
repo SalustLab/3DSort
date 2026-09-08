@@ -42,6 +42,35 @@ def test_extract_reads_real_layout(sd, s3, tmp_path):
     assert (out / "user" / "CacheD.dat").exists()
 
 
+def test_exact_gap_survives_real_save3ds_roundtrip(sd, s3, tmp_path):
+    """Only a fresh sandbox copy: explicit positions survive encryption/import."""
+    c = find_console(sd)
+    before, after = tmp_path / "gap_before", tmp_path / "gap_after"
+    s3.extract(c.extdata_id, sd, before)
+    path = before / "user" / "SaveData.dat"
+    parsed = SaveData(path.read_bytes())
+    game = parsed.entries[0]
+    parsed.set_position(game.slot, 359)
+    expected = parsed.serialize()
+    path.write_bytes(expected)
+    s3.import_(c.extdata_id, sd, before)
+    s3.extract(c.extdata_id, sd, after)
+    assert (after / "user" / "SaveData.dat").read_bytes() == expected
+
+
+def test_badge_reader_roundtrip_on_real_sandbox(sd, s3, tmp_path):
+    """No badge mutations before hardware validation; exercise the real helper."""
+    from core.badges import Badges, EXTDATA_ID
+    c = find_console(sd)
+    if not any(p.name.lower() == EXTDATA_ID[-8:] for p in c.extdata_dir.parent.iterdir()):
+        pytest.skip("sandbox has no badge extdata")
+    out = tmp_path / "badges"
+    s3.extract(EXTDATA_ID, sd, out)
+    data = (out / "user" / "BadgeData.dat").read_bytes()
+    raw = (out / "user" / "BadgeMngFile.dat").read_bytes()
+    assert Badges(data, raw).serialize() == raw
+
+
 def test_roundtrip_edit_import_reextract(sd, s3, tmp_path):
     c = find_console(sd)
     ext, ver = tmp_path / "ext", tmp_path / "ver"
@@ -93,9 +122,11 @@ def test_real_sd_untouched_guard():
     Known limitation: a legitimate write from the APP also trips this (the guard
     cannot tell who wrote). When it fires, check the extdata timestamps against the
     backup history before assuming a test misbehaved, then re-register the baseline."""
-    real = Path("G:/Nintendo 3DS")
-    if not real.exists():
+    from core.sdcard import find_sd_drive
+    drive = find_sd_drive()          # whatever letter Windows gave the card today
+    if drive is None:
         pytest.skip("real SD not mounted")
+    real = Path(drive) / "Nintendo 3DS"
     import hashlib
     marker = Path(__file__).parent / ".real_sd_hash"
     known = dict(line.split(None, 1) for line in

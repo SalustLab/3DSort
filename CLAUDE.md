@@ -1,7 +1,11 @@
 # CLAUDE.md — 3DSort
 
 Static context for AI-assisted development. Read before any change.
-Last revised: 2026-08-19. Full change history: git log of this file.
+Last revised: 2026-09-07. Full change history: git log of this file.
+
+**v1.2.0 (2026-09-07):** exact positions and the badge collection shipped.
+Section 12 supersedes the older compaction and badge-deferral statements
+below; the console validation is in `docs/BADGES_TESTING.md`.
 
 ## 1. What the project is
 
@@ -18,7 +22,7 @@ staged writes with automatic backup and a restorable history.
   UX/aesthetics, consult it.
 - **v1 scope**: GRID, SYNC, INSTRUCTIONS, SETTINGS tabs; real game icons (firm
   user requirement); staging/undo/redo; backups. RULES and THEMES/badges
-  deferred to v2. v1.1 (implemented, hardware-validated): reorder NAND
+  deferred to v2 (badges landed in v1.2, §12). v1.1 (implemented, hardware-validated): reorder NAND
   apps/folders/Game Card and create/rename/delete folders via Launcher.dat
   writes with GodMode9-assisted injection; automatic unwrap; theme preservation.
 
@@ -92,8 +96,9 @@ wins without overwriting the file).
 
 ## 3. NON-NEGOTIABLE safety rules
 
-1. **No test, script or experiment writes to the real SD** (`G:` on the dev
-   machine). All work runs against the **sandbox** (a copy).
+1. **No test, script or experiment writes to the real SD** (`G:` or `H:` on the
+   dev machine, whatever letter Windows assigns; the guard uses `find_sd_drive`).
+   All work runs against the **sandbox** (a copy).
    `tests/test_integration.py::test_real_sd_untouched_guard` compares the real
    extdata hash between runs and FAILS if anything wrote there — do not remove
    or weaken that test.
@@ -109,7 +114,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (153; real integration skipped without sandbox/keys; the real-SD guard
+# tests (205; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -215,7 +220,10 @@ Exact size `0x2DA0`. Offsets implemented in `core/savedata.py`:
   (content-preserving tid↔slot permutation), adjust empty-slot status, and
   rarely swap one neighbor pair at the NAND/cart→SD boundary (1 in 118
   observed) — console behavior, not `apply_order`; tolerate it or drag the two
-  tiles and rewrite.
+  tiles and rewrite. Installing a title (CIA via FBI) makes HOME RE-INDEX every
+  slot (136/136 changed, hardware 2026-09-07) while keeping all (tid, pos,
+  folder) tuples; the new title takes the lowest free HOME position. Never key
+  anything on slot numbers across sessions; a fresh import absorbs it.
 - **The position space is SHARED between NAND and SD** (hardware-confirmed: a
   NAND app can sit in the middle of the games; NAND positions live in
   Launcher.dat, §5.8). `apply_order` assigns the lowest free positions **per
@@ -296,6 +304,8 @@ are staged changes (entity keys, §6); the write generates an injection payload
   this: `write_sd` writes the baptism number (`SaveData.set_folder_number`,
   counter read from the current Launcher), `_write_launcher` increments the
   counter (`Launcher.set_next_folder_number`), delete cleans nothing.
+  Addendum 2026-09-07 (dev console): the orphan number survives the deleting
+  session, but a LATER HOME session zeroed it (`numbers[fid]` back to 0).
 
 ### 5.8 Launcher.dat (NAND apps — read AND write in core/launcher.py)
 
@@ -407,13 +417,16 @@ are staged changes (entity keys, §6); the write generates an injection payload
 - Staged mutations: `move_item(slot, before|null)`, `swap_items(a, b)` (ANY
   pair of types; folder/cart only on home), `set_folder(key, folder)` (g/n;
   NAND gains an explicit position = lowest free in the destination),
-  `folder_create(name=None)` (validation like rename: 1..16 UTF-16 units;
+  `folder_create(name=None, decoration=None)` (decoration = catalog id of a
+  single-piece badge staged as the folder icon in the same change; validation like rename: 1..16 UTF-16 units;
   None/"" = "New folder"; the UI asks the name in a modal first, Cancel does
   not create), `folder_rename(fid, name)`, `folder_empty(fid)`,
-  `folder_delete(fid)` (members return to home), `sort_preset` (`az`, `za`,
-  `date_asc`, `date_desc`; dates from `core/titledates.py`, offline
+  `folder_delete(fid)` (members return to home), `sort_preset(preset, rows=4)`
+  (`az`, `za`, `date_asc`, `date_desc`; dates from `core/titledates.py`, offline
   tid→"YYYY-MM-DD" table; dateless titles go LAST in both directions; missing
-  table = stable no-op), `undo/redo/reset_staging`. Launcher mutations require
+  table = stable no-op; then every container is laid out by type: system apps,
+  Game Card, folders, badges by name, then the sorted games, no gaps, §12),
+  `compact_games(folder=-1, rows=4)`, `undo/redo/reset_staging`. Launcher mutations require
   `launcherWritable`. Every `write_sd` zeroes the status array (unwrap always
   on, §5.4) and grafts the theme region 0x13B8+ (§5.4).
 - `write_sd()` is **all-or-nothing** (SD + launcher from the SAME snapshot):
@@ -577,8 +590,8 @@ SD + a Playwright step if it has a UI gesture.
 
 ## 10. Current state and roadmap
 
-**Shipped: v1.1.0**, public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-153 tests. Version lives in `VERSION` in ui/app.js (single source). README
+**Shipped: v1.2.0** (badges + exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
+205 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` only (§3.4: real libraries leak console data).
 
 **Hardware-validated** (dev console + a second New 3DS, both USA): full cycle
@@ -588,8 +601,8 @@ console that had never run the app, theme preservation via graft, gate 2
 aborting correctly when the HOME booted between write and inject, restore, and
 the multi-id0 card flow (§5.1). macOS (arm64, external contributor): the
 v1.1.0 release `.app` (Actions build) validated on macOS Tahoe 26.6.2 against
-a real New 2DS XL, full read/import workflow — this also covers the macOS
-clean-machine smoke; **write/inject on macOS not hardware-validated**.
+a real New 2DS XL — read/import AND the write/inject cycle — which also
+covers the macOS clean-machine smoke.
 The Windows exe was tested end to end (selftest, icons, date sort, native
 window, read-only autodetect of the real SD).
 
@@ -603,10 +616,9 @@ chain: it receives console keys and sits on the non-Windows lookup path); the
 rebuild (`pyinstaller 3DSort.spec`) before asking for a hardware test.
 
 **Remaining for distribution**: Windows smoke on a clean machine WITHOUT
-Python (mainly with WebView2 absent); write/inject validated from a Mac;
-Linux tar.gz validation on real hardware (release path added 2026-08-20 —
-`3DSort.linux.spec` + `linux-release.yml`, checklist in
-`docs/LINUX_TESTING.md`).
+Python (mainly with WebView2 absent); Linux tar.gz validation on real hardware
+(release path added 2026-08-20 — `3DSort.linux.spec` + `linux-release.yml`,
+checklist in `docs/LINUX_TESTING.md`).
 
 **v2**: RULES tab (rule engine), THEMES/badges.
 
@@ -632,3 +644,93 @@ once, §5.4).
   runtime.
 - Everything in the repo is in English, including this file and `.gitignore`
   comments (user decision).
+
+## 12. Exact positions and badges (development, not released)
+
+- `core/layout.py` owns occupancy and validation; `core/layout_api.py` owns staged
+  spatial/badge operations. Snapshots now include explicit `game_pos` and
+  `save_raw`; `order` is derived. Moves leave holes. `compact_games(folder, rows)`
+  compacts the WHOLE container in position order (owner decision 2026-09-07):
+  games, badges, and with a writable launcher also system apps, folder tiles and
+  the Game Card, into the lowest free cells; aligned multi-piece badges move as
+  a block. `sort_preset(preset, rows)` uses the same compaction with an explicit
+  order (owner decision): system apps, Game Card, folders (relative order kept),
+  badges by name, then the games sorted by the preset. The launcher only becomes
+  dirty (inject needed) when a system/folder/cart item really changed cell.
+  Empty cells are coordinate targets, never entities. HOME capacity is 360;
+  folder capacity is 60.
+- `core/badges.py` reads badge extdata `00000000000014d1` on the selected console.
+  `BadgeData.dat` size 0xF4DF80; `BadgeMngFile.dat` size 0xD4A8. Documented fields:
+  catalog @0x3E8 (1000 x 0x28), placements @0xB2E8 (360 x 0x18), placed count @0xC,
+  per-item placed count @catalog+0x10; image/name data remains unchanged on moves.
+  Sentinel, decoration, stock and multi-part semantics are hardware-PROVEN
+  (2026-09-07, cases in `docs/BADGES_TESTING.md`); `HARDWARE_VALIDATED=True`
+  since then. Image orientation (alpha nibble order) is still only synthetic-
+  tested. Any new record shape the parser does not recognise still fails closed.
+  Hardware-observed 2026-09-07 (GYTB on the dev console): the extdata can exist
+  with an EMPTY `user/` (GYTB run without a badges folder) = no collection, still
+  writable; GYTB writes no composite sub-IDs, quantity 65535, one set `0xEFBE`.
+  **Hardware-PROVEN** (USA New 3DS, 4-row HOME, one badge placed, dumps in
+  `sandbox/badge-validation/0{1,2}-*`): placing a badge rewrote ALL 360 placement
+  records; free record (24 bytes @0xB2E8+n*0x18) = `00000000 ffffffff ffffffff
+  ffff0000 ffffffff ffffffff` (`badges.EMPTY_RECORD`; GYTB leaves zeros); the
+  placed record = the catalog record's first 16 bytes + u32 pos + u32 folder
+  (`0xFFFFFFFF` = HOME), took layout slot 0 (first free); pos 118 = column 30,
+  row 3, 1-based, column-major with 4 rows (same rule as SaveData §5.4); header
+  u32 @0xC = placed total; catalog u16 @+0x10 = per-badge placed count. A badge
+  inside a folder: u32 folder = Launcher folder id, pos LOCAL to the folder with
+  the folder's rows. A folder DECORATION: u32 folder = `0xF0FF`, u32 pos = the
+  folder TILE's HOME position (NOT the folder id; proven with two folders at
+  positions 13 and 12). Staging keeps the folder id and maps to/from the tile
+  position at the file boundary (`LayoutApi._badge_layout_from_file/_to_file`).
+  Moving the folder tile rewrites that pos; deleting the folder clears the
+  record (both proven). HOME refuses to delete a non-empty folder (badges count);
+  the app's `folder_delete` returns members home first, a superset. Header u32
+  @0x14 is volatile console state (3dbrew: "selected badge column"), as is
+  @0x10 (selected set, 0xFFFFFFFF = all): preserve, never compute. Quantity
+  @+0x12 is the TOTAL owned, availability = quantity minus placed (proven). Repeated copies = several layout records with the same
+  identity, per-badge count @+0x10 = occurrences. **Multi-part ("mega") badges
+  have NO composite semantics on the console** (hardware 2026-09-07, three
+  synthesized 2x2 variants + Badge Arcade documentation): every piece is an
+  independent badge in the tray and its own placement record; players arrange
+  or swap pieces by hand. The sub-ID (`badges.SHAPES`) only names the piece.
+  Group moves in `LayoutApi._badge_group` are an app convenience that degrades
+  to a single piece when siblings are not adjacent. BadgeInfo @+0x14 = pin
+  offset (cosmetic), BadgeIdentifier @+0x0 = .prb hash: preserve both.
+  Details and the remaining open cases in `docs/BADGES_TESTING.md`.
+- Badge catalog IDs and occurrence keys `b:<slot>` are different. Source data is
+  cached privately by content reference (`badge_source`) so undo/redo of a restore
+  also restores the correct collection without copying large images per snapshot.
+  `ui/layout.js`/`layout.css` add the GRID collection panel, exact-position cells,
+  deferred images, composite-area indication and explicit folder decoration.
+- `core/write_api.py` prepares all extdata and the NAND payload locally before
+  the first SD import, backs up the fresh base, journals and verifies each step.
+  The write is recoverable, not physically atomic. Recovery never runs on startup
+  without user action. API calls are serialized across HTTP and js_api; decorated
+  signatures must stay visible to pywebview's getfullargspec inspection.
+- New backup namespaces `__badges__/` and `__layout__/` never enter HOME extdata.
+  Legacy backups keep current badges; conflicts are displayed and must be resolved
+  before WRITE. Do not restore new badge backups using an older application.
+- A badge-dependent pending injection cannot be cancelled independently: its SD
+  positions may overlap the old NAND layout. Finish/verify it, then restore through
+  staging. Incomplete filesystem writes instead use SYNC recovery.
+- GRID toolbar (owner decision, 2026-09-07): container dropdown, `★ Badges`
+  (`.chip-gold`), `✿ Decorate folder` (`.chip-rose`, both grids, hidden without a
+  collection), `Compact games` (confirm modal with the gap count, disabled when
+  there are no gaps), and a `− N PAGES +` segment at the right for the empty pages
+  shown. Decorate modal = folder chips (home grid) + badge image cards; the New
+  folder modal has the same badge picker; inside a folder the big icon
+  (`#folderArtDrop`) accepts a badge drop and confirms before replacing the icon.
+  Home-grid folder tiles keep "drop = move inside". Staged labels name the item
+  and the 1-based cell ("Placed Sun at cell 21"). Esc closes dismissible modals
+  (those with `#modalBg`) and the badge panel.
+- **THE WEBVIEW2 DRAG TRAP**: an `<img>` inside a draggable tile MUST have
+  `pointer-events:none` (and `-webkit-user-drag:none`), like `.icon img`. In
+  WebView2/Edge the native image drag wins over the tile's drag and the operation
+  dies right after `dragstart` (no drop, no dragend), leaving the tile stuck in
+  `.dragging`. Chromium headless does NOT reproduce it: test drags in the native
+  window (scratchpad CDP harness) before shipping tile markup changes.
+- Test with `python app.py --serve --mock --mock-badges`, pytest and
+  `node tools/test_spatial_ui.cjs` (development Playwright). Mock data is synthetic.
+  The real save3ds integration tests and G: guard remain intact. Full design and
+  API details: `docs/SPATIAL_LAYOUT.md`. Do not release until console acceptance.

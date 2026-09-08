@@ -28,7 +28,11 @@ async function call(name, args = []) {
 }
 async function refresh(name, args) {
   const r = await call(name, args);
-  if (r) { S = r; render(); }
+  if (r) S = r;
+  // Always re-render: a failed drop must not leave the source tile in its faded
+  // "dragging" state (the toast already carries the error).
+  render();
+  return r;
 }
 
 let toastTimer;
@@ -56,11 +60,7 @@ const folderMembers = id => [
 const fname = id => (S.folderNames && S.folderNames[id]) || `Folder ${id + 1}`;
 const finitial = id => (fname(id).trim()[0] || "?").toUpperCase();
 // home grid sequence as shown on the console: games + NAND apps (pinned) + folders, by position
-const homeSeq = () => [
-  ...homeItems().map(i => ({ kind: "game", it: i, pos: i.pos })),
-  ...systemItems().map(s => ({ kind: "system", it: s, pos: s.pos })),
-  ...folderIds().map(id => ({ kind: "folder", id, pos: (S.folderPos && S.folderPos[id] != null) ? S.folderPos[id] : Infinity }))
-].sort((a, b) => a.pos - b.pos);
+const homeSeq = () => containerSequence(-1);
 // WHOLE columns visible per view mode (1-6 rows), counted on the real photos in sample/ (2026-08-14)
 const COLS = [3, 3, 5, 7, 9, 10];
 // Folders are always blue, like on the real 3DS (no color picking there).
@@ -123,7 +123,7 @@ function playFlip(before) {
 // render() replaces #screen wholesale, so the panes that scroll (.grid and
 // .preview-col, see index.html) are destroyed and rebuilt at scrollTop 0. Every
 // staged change would jump the user back to the top of the grid.
-const SCROLL_PANES = [".grid", ".preview-col"];
+const SCROLL_PANES = [".grid", ".preview-col", ".badge-panel"];
 
 function captureScroll() {
   return SCROLL_PANES.map(sel => {
@@ -147,7 +147,7 @@ function render() {
   const before = captureGrid();
   const tops = captureScroll();
   const el = document.getElementById("screen");
-  if (P.tab === "GRID") el.innerHTML = gridScreen();
+  if (P.tab === "GRID") el.innerHTML = gridScreen() + badgePanel();
   else if (P.tab === "RULES") el.innerHTML = rulesScreen();
   else if (P.tab === "THEMES") el.innerHTML = themesScreen();
   else if (P.tab === "SYNC") el.innerHTML = syncScreen();
@@ -155,6 +155,7 @@ function render() {
   else el.innerHTML = settingsScreen();
   restoreScroll(tops);   // before playFlip: the FLIP deltas are viewport-relative
   bind();
+  bindSpatial();
   playFlip(before);
 }
 
@@ -207,9 +208,11 @@ function systemTileHtml(it, px) {
 function folderTileHtml(id, px) {
   const c = FOLDER_BLUE;
   const drag = S.launcherWritable ? ` draggable="true" data-ekey="f:${id}"` : "";
+  const decoration = (S.badges?.placed || []).find(b => b.decoration === id);
   return `<div class="item" data-folder-tile="${id}"${drag} data-key="f${id}">
-    <div class="folder-tile" style="width:${px}px;height:${px}px;border:2.5px solid ${c}">
-      <div class="dot" style="font-size:${Math.round(px * .52)}px;line-height:1;color:${c}">${esc(finitial(id))}</div>
+    <div class="folder-tile" style="position:relative;width:${px}px;height:${px}px;border:2.5px solid ${c}">
+      ${decoration ? `<div class="folder-decoration">${badgeImage(decoration.badge, px - 12)}</div>`
+        : `<div class="dot" style="font-size:${Math.round(px * .52)}px;line-height:1;color:${c}">${esc(finitial(id))}</div>`}
       <div class="badge" style="background:${c}">${folderMembers(id).length}</div>
     </div>
     ${P.showLabels ? `<div class="label">${esc(fname(id))}</div>` : ""}
@@ -234,7 +237,9 @@ function previewCol() {
     if (!cell) cells.push(`<div class="pv-cell" style="background:linear-gradient(145deg,rgba(255,255,255,.25),rgba(255,255,255,.1));border:1px dashed rgba(90,77,58,.3)"></div>`);
     else if (cell.kind === "folder") {
       const cur = P.openFolder === cell.id;
-      cells.push(`<div class="pv-cell dot" style="display:grid;place-items:center;background:linear-gradient(145deg,#fffdf8,#efe6d6);border:${cur ? "2px solid #7ac70c" : `1.5px solid ${FOLDER_BLUE}`};color:${FOLDER_BLUE};font-size:${Math.max(7, Math.round(side * .6))}px;line-height:1">${esc(finitial(cell.id))}</div>`);
+      cells.push(`<div class="pv-cell dot" style="display:grid;place-items:center;background:linear-gradient(145deg,#fffdf8,#efe6d6);border:${cur ? "2px solid #7ac70c" : `1.5px solid ${FOLDER_BLUE}`};color:${FOLDER_BLUE};font-size:${Math.max(7, Math.round(side * .6))}px;line-height:1">${folderArt(cell.id, side)}</div>`);
+    } else if (cell.kind === "badge") {
+      cells.push(`<div class="pv-cell">${badgeImage(cell.it.badge, side)}</div>`);
     } else if (cell.kind === "system") {
       if (cell.it.hole) cells.push(`<div class="pv-cell" style="background:linear-gradient(145deg,rgba(255,255,255,.25),rgba(255,255,255,.1));border:1px dashed rgba(90,77,58,.3)"></div>`);
       else if (cell.it.icon) cells.push(`<div class="pv-cell" style="border:1px solid rgba(0,0,0,.15)"><img src="data:image/png;base64,${cell.it.icon}"></div>`);
@@ -295,35 +300,34 @@ function gridScreen() {
   // column-major (pos n -> col n/rows). CSS grid emits row-major, so transpose.
   const rows = P.viewRows, cols = COLS[rows - 1], per = rows * cols;
   const seq = homeSeq();
-  const pages = Math.max(1, Math.ceil(seq.length / per));
+  const pages = Math.max(1, Math.ceil(Math.max(seq.length, B.shown[-1] || 0) / per));
   let tiles = "";
   for (let pg = 0; pg < pages; pg++) {
     if (pg) tiles += `<div class="page-sep dot" data-key="p${pg}">PAGE ${pg + 1}</div>`;
     const slice = seq.slice(pg * per, pg * per + per);
     for (let g = 0; g < per; g++) {
       const c = slice[(g % cols) * rows + Math.floor(g / cols)];
-      if (!c) tiles += `<div style="display:flex;justify-content:center;padding:10px 4px"><div style="width:${px}px;height:${px}px;border-radius:13px;border:2px dashed var(--line2);opacity:.6"></div></div>`;
-      else tiles += c.kind === "game" ? tileHtml(c.it, px)
-        : c.kind === "system" ? systemTileHtml(c.it, px)
-        : folderTileHtml(c.id, px);
+      const pos = pg * per + (g % cols) * rows + Math.floor(g / cols);
+      tiles += pos < 360 ? spatialTile(c, -1, pos, px) : '<div></div>';
     }
   }
   const sizeBtns = ["S", "M", "L"].map(s => `<span class="${P.iconSize === s ? "on" : ""}" data-size="${s}">${s}</span>`).join("");
   return previewCol() + `<div class="main-col">
     <div class="grid-head">
       <div style="font-weight:900;font-size:16px">Home grid</div>
-      <div style="font-size:12px;color:var(--mut)">drag to swap places · drop a game onto a folder to move it in · click a folder to open</div>
+      <div style="font-size:12px;color:var(--mut)">drag to swap · drop onto an empty position to move · drop onto a folder to move inside</div>
       <div style="flex:1"></div>
       ${S.launcherWritable ? `<div class="chipbtn" id="newFolderBtn" style="border-width:1.5px;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800">+ Folder</div>` : ""}
       <div class="seg" id="sizeSeg">${sizeBtns}</div>
-      <div class="sortchip" id="sortChip">⇅ Sort: ${esc(P.sortMode)} <span style="color:var(--mut)">▾</span>
+      <div class="sortchip chip-lav" id="sortChip" title="System apps, Game Card, folders and badges first, then the games in this order. Closes every gap.">⇅ Sort: ${esc(P.sortMode)} <span style="opacity:.6">▾</span>
         ${P.sortMenu ? `<div class="menu" id="sortMenu">
           <div data-preset="az">A → Z</div><div data-preset="za">Z → A</div>
           <div data-preset="date_asc">Release date ↑</div><div data-preset="date_desc">Release date ↓</div>
         </div>` : ""}
       </div>
     </div>
-    <div class="grid" id="grid" style="grid-template-columns:repeat(${cols},1fr)">${tiles}</div>
+    ${spatialControls(-1)}
+    <div class="grid" id="grid" style="grid-template-columns:repeat(${cols},minmax(0,1fr))">${tiles}</div>
     ${statusBar()}
   </div>`;
 }
@@ -341,8 +345,8 @@ function folderScreen(px) {
       <div class="link" id="closeFolderX" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--line2);display:grid;place-items:center;font-size:13px">✕</div>
     </div>
     <div style="display:flex;align-items:center;gap:16px;margin:16px 0 4px">
-      <div style="width:72px;height:72px;flex:none;border-radius:16px;background:var(--card);border:3px solid ${c};display:grid;place-items:center;box-shadow:0 4px 0 rgba(74,63,53,.12)">
-        <div class="dot" style="font-size:38px;line-height:1;color:${c}">${esc(finitial(id))}</div>
+      <div id="folderArtDrop" class="folder-art-drop" data-folder="${id}" title="${S.badges?.writable ? "Drop a badge here to make it this folder's icon" : ""}" style="width:72px;height:72px;flex:none;border-radius:16px;background:var(--card);border:3px solid ${c};display:grid;place-items:center;box-shadow:0 4px 0 rgba(74,63,53,.12)">
+        <div class="dot" style="font-size:38px;line-height:1;color:${c}">${folderArt(id, 60)}</div>
       </div>
       <div style="flex:1;display:flex;flex-direction:column;gap:8px">
         ${S.launcherWritable
@@ -354,8 +358,9 @@ function folderScreen(px) {
       <div style="font-weight:800;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:1.2px">In this folder · ${members.length} of 60</div>
       <div style="font-size:12px;color:#cbb694;font-weight:600">drag titles in from the home grid, or out to remove</div>
     </div>
-    <div class="grid" id="grid" data-in-folder="${id}" style="grid-template-columns:repeat(8,1fr)">
-      ${members.map(m => m.kind === "game" ? tileHtml(m.it, 56) : systemTileHtml(m.it, 56)).join("")}${empties}
+    ${spatialControls(id)}
+    <div class="grid" id="grid" data-in-folder="${id}" style="grid-template-columns:repeat(${COLS[(S.folderRows[id] || 2) - 1]},minmax(0,1fr))">
+      ${spatialFolderGrid(id, 56)}
     </div>
     <div class="btn" id="removeZone" style="margin:10px 0">⌂ drop a title here to send it back to the home grid</div>
     <div style="display:flex;gap:10px;padding-top:14px;border-top:1px solid var(--line)">
@@ -491,6 +496,7 @@ function syncScreen() {
         </div>
         ${usage}
       </div>
+      ${recoveryPanel()}
       <div class="btn" id="importBtn">⇣ Import layout from SD</div>
       <div class="btn" id="backupBtn">⛉ Back up current layout</div>
       <div class="btn primary" id="writeBtn2">${n ? `WRITE ${n} STAGED CHANGE${n === 1 ? "" : "S"} ▸` : "NOTHING STAGED"}</div>
@@ -529,7 +535,7 @@ function syncScreen() {
 // Button labels live here because instruction text refers to them by name. A
 // literal in prose plus a different literal on the button is how the wizard grew
 // a "press Verify below" under a button that said DONE.
-const VERSION = "v1.1.1";
+const VERSION = "v1.2.0";
 
 const BTN_IMPORT = "Import layout from SD";
 const BTN_VERIFY_INJECT = "Verify";
@@ -682,10 +688,10 @@ function bind() {
   if ($("redoBtn")) $("redoBtn").onclick = () => refresh("redo");
   if ($("resetBtn")) $("resetBtn").onclick = () => {
     if (!S.staged.length) return toast("Nothing staged");
-    refresh("reset_staging").then(() => toast("All staged changes discarded. Redo recovers them"));
+    refresh("reset_staging").then(r => { if (r) toast("All staged changes discarded. Redo recovers them"); });
   };
-  if ($("importBtn")) $("importBtn").onclick = async () => { await refresh("import_sd"); toast("Layout imported from SD"); };
-  if ($("backupBtn")) $("backupBtn").onclick = async () => { await refresh("backup_manual"); toast("Backup saved"); };
+  if ($("importBtn")) $("importBtn").onclick = async () => { if (await refresh("import_sd")) toast("Layout imported from SD"); };
+  if ($("backupBtn")) $("backupBtn").onclick = async () => { if (await refresh("backup_manual")) toast("Backup saved"); };
   if ($("prevPage")) $("prevPage").onclick = () => { P.page = Math.max(1, P.page - 1); savePrefs(); render(); };
   if ($("nextPage")) $("nextPage").onclick = () => { P.page++; savePrefs(); render(); };
   if ($("viewSeg")) $("viewSeg").querySelectorAll("[data-rows]").forEach(el => el.onclick = () => { P.viewRows = +el.dataset.rows; savePrefs(); render(); });
@@ -696,17 +702,21 @@ function bind() {
       P.sortMenu = false;
       P.sortMode = e.target.textContent;
       savePrefs();
-      refresh("sort_preset", [preset]).then(() => toast("Sorted (staged)"));
+      refresh("sort_preset", [preset, P.viewRows]).then(r => { if (r) toast("Sorted and compacted (staged)"); });
     } else { P.sortMenu = !P.sortMenu; render(); }
   };
   if ($("closeFolder")) $("closeFolder").onclick = () => { P.openFolder = null; render(); };
   if ($("closeFolderX")) $("closeFolderX").onclick = () => { P.openFolder = null; render(); };
   const needsDump = () => toast("Needs a system save dump. See the SYNC tab");
   if ($("newFolderBtn")) $("newFolderBtn").onclick = () => {
-    $("modal").innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal">
+    // The icon picker only appears when the card has an editable badge collection.
+    const withIcon = hasBadges() && S.badges.writable;
+    let icon = null;
+    $("modal").innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal" ${withIcon ? 'style="width:520px"' : ""}>
       <div style="font-weight:900;font-size:16px">New folder</div>
       <div style="font-size:12.5px;color:var(--mut);font-weight:700">Name it now or keep the default. The folder stays staged until you write.</div>
       <input id="newFolderName" maxlength="16" placeholder="New folder" style="font-size:14px;font-weight:800;font-family:inherit;color:var(--ink);background:#faecd4;border:1px solid var(--line2);border-radius:9px;padding:10px 12px;outline:none">
+      ${withIcon ? `<div style="font-size:12.5px;color:var(--mut);font-weight:700">Icon (optional): a badge from your collection, or the first letter of the name.</div>${badgePickList("data-new-folder-icon", null, "No icon", "N")}` : ""}
       <div style="display:flex;gap:10px;justify-content:flex-end">
         <div class="btn" id="cancelNewFolder" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Cancel</div>
         <div class="btn primary" id="confirmNewFolder" style="padding:9px 18px;font-size:12.5px;border-radius:9px">Save</div>
@@ -714,10 +724,16 @@ function bind() {
     </div></div>`;
     const inp = $("newFolderName");
     inp.focus();
+    inp.oninput = () => { const l = document.querySelector(".pick-none"); if (l) l.textContent = (inp.value.trim()[0] || "N").toUpperCase(); };
+    document.querySelectorAll("[data-new-folder-icon]").forEach(el => el.onclick = () => {
+      icon = el.dataset.newFolderIcon === "none" ? null : +el.dataset.newFolderIcon;
+      document.querySelectorAll("[data-new-folder-icon]").forEach(x => x.classList.toggle("chosen", x === el));
+    });
+    if (withIcon) loadBadgeImages();
     const save = () => {
       const name = inp.value.trim();
       $("modal").innerHTML = "";
-      refresh("folder_create", [name || null]).then(() => toast("Folder created (staged)"));
+      refresh("folder_create", [name || null, icon]).then(r => { if (r) toast(icon === null ? "Folder created (staged)" : "Folder created with its icon (staged)"); });
     };
     inp.onkeydown = e => { if (e.key === "Enter") save(); };
     $("cancelNewFolder").onclick = () => ($("modal").innerHTML = "");
@@ -730,13 +746,13 @@ function bind() {
     inp.onblur = () => {
       const name = inp.value.trim();
       if (name && name !== fname(P.openFolder))
-        refresh("folder_rename", [P.openFolder, name]).then(() => toast("Folder renamed (staged)"));
+        refresh("folder_rename", [P.openFolder, name]).then(r => { if (r) toast("Folder renamed (staged)"); });
       else render();
     };
   }
   if ($("emptyFolderBtn")) $("emptyFolderBtn").onclick = () => {
     if (!S.launcherWritable) return needsDump();
-    refresh("folder_empty", [P.openFolder]).then(() => toast("Folder emptied (staged)"));
+    refresh("folder_empty", [P.openFolder, P.viewRows]).then(r => { if (r) toast("Folder emptied (staged)"); });
   };
   if ($("deleteFolderBtn")) $("deleteFolderBtn").onclick = () => {
     if (!S.launcherWritable) return needsDump();
@@ -754,14 +770,13 @@ function bind() {
     $("confirmDelete").onclick = async () => {
       $("modal").innerHTML = "";
       P.openFolder = null;
-      await refresh("folder_delete", [id]);
-      toast("Folder deleted (staged)");
+      if (await refresh("folder_delete", [id, P.viewRows])) toast("Folder deleted (staged)");
     };
   };
   if ($("verifyInjectBtn")) $("verifyInjectBtn").onclick = () =>
     refresh("verify_inject").then(() => { if (S && !S.pendingInject) toast("Inject confirmed ✓"); });
   if ($("confirmInjectBtn")) $("confirmInjectBtn").onclick = () =>
-    refresh("confirm_inject").then(() => toast("Marked as done. Re-dump before the next system edit"));
+    refresh("confirm_inject").then(r => { if (r) toast("Marked as done. Re-dump before the next system edit"); });
   if ($("cancelInjectBtn")) $("cancelInjectBtn").onclick = () => {
     $("modal").innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal">
       <div style="font-weight:900;font-size:16px">Cancel the pending inject?</div>
@@ -776,8 +791,7 @@ function bind() {
     $("modalBg").onclick = e => { if (e.target.id === "modalBg") $("modal").innerHTML = ""; };
     $("doCancelInject").onclick = async () => {
       $("modal").innerHTML = "";
-      await refresh("cancel_inject");
-      toast("Inject cancelled. System changes discarded");
+      if (await refresh("cancel_inject")) toast("Inject cancelled. System changes discarded");
     };
   };
   document.querySelectorAll("[data-restore]").forEach(el => el.onclick = async () => {
@@ -852,8 +866,8 @@ function bind() {
   });
   const grid = document.getElementById("grid");
   if (grid) {
-    const clearMarks = () => grid.querySelectorAll(".drop-into,.swap-with").forEach(x =>
-      x.classList.remove("drop-into", "swap-with"));
+    const clearMarks = () => grid.querySelectorAll(".drop-into,.swap-with,.move-here,.badge-area").forEach(x =>
+      x.classList.remove("drop-into", "swap-with", "move-here", "badge-area"));
     // Edge-scroll while dragging (issue #2). dragover stops firing while the
     // pointer sits still, so the scroll runs on a rAF loop keyed off the last
     // known Y. The loop exits when the drag is over: P.dragKey is nulled on
@@ -877,9 +891,12 @@ function bind() {
       const t = e.target.closest(".item");
       if (!t || t.classList.contains("dragging")) return;
       const k = dragKind();
-      if (t.dataset.folderTile !== undefined && (k === "g" || k === "n")) {
+      if (t.dataset.empty !== undefined) {
+        t.classList.add("move-here");
+        if (k === "b" || k === "collection") markBadgeArea(grid, P.dragKey, +t.dataset.cell);
+      } else if (t.dataset.folderTile !== undefined && (k === "g" || k === "n" || k === "b" || k === "collection")) {
         t.classList.add("drop-into");                  // title over a folder = move it inside
-      } else if (t.dataset.ekey !== undefined) {       // any pair of tiles = swap places
+      } else if (t.dataset.ekey !== undefined && k !== "collection") {       // any pair of tiles = swap places
         t.classList.add("swap-with");
       }                                                // pinned tile/placeholder: invalid target
     };
@@ -888,9 +905,16 @@ function bind() {
       if (P.dragKey === null) return;
       const key = P.dragKey;
       P.dragKey = null;
+      const empty = grid.querySelector(".move-here");
+      if (empty) {
+        if (key.startsWith("collection:")) refresh("place_badge", [+key.split(":")[1], +empty.dataset.container, +empty.dataset.cell, gridRows()]).then(r => { if (r) toast("Badge placed (staged)"); });
+        else refresh("move_to_position", [key, +empty.dataset.container, +empty.dataset.cell, gridRows()]);
+        return;
+      }
       const into = grid.querySelector(".drop-into");
       const swap = grid.querySelector(".swap-with");
-      if (into) refresh("set_folder", [key, +into.dataset.folderTile]).then(() => toast("Moved into folder (staged)"));
+      if (into && key.startsWith("collection:")) refresh("place_badge_in_folder", [+key.split(":")[1], +into.dataset.folderTile, P.viewRows]).then(r => { if (r) toast("Badge placed inside the folder (staged)"); });
+      else if (into) refresh("set_folder", [key, +into.dataset.folderTile, P.viewRows]).then(r => { if (r) toast("Moved into folder (staged)"); });
       else if (swap) refresh("swap_items", [key, swap.dataset.ekey]);
     };
   }
@@ -903,7 +927,7 @@ function bind() {
       if (P.dragKey === null) return;
       const key = P.dragKey;
       P.dragKey = null;
-      refresh("set_folder", [key, -1]).then(() => toast("Sent back to home grid (staged)"));
+      refresh("set_folder", [key, -1, P.viewRows]).then(r => { if (r) toast("Sent back to home grid (staged)"); });
     };
   }
 }

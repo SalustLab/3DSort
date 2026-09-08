@@ -110,11 +110,10 @@ def test_set_folder_nand_in_and_out():
     st = api.set_folder(SETTINGS, 0)
     got = positions(st)
     assert got[SETTINGS] == (0, 1)  # H&S occupies pos 0 in the folder; next free = 1
-    # the pos 0 freed on home is taken by the compaction of the games
-    assert min(p for k, (f, p) in got.items() if k.startswith("g:")) == 0
+    # Moving a NAND item leaves its original position empty.
+    assert min(p for k, (f, p) in got.items() if k.startswith("g:")) == 3
     st = api.set_folder(SETTINGS, -1)
-    # back to home: lowest free position after the compaction of the games
-    assert positions(st)[SETTINGS] == (-1, 16)
+    assert positions(st)[SETTINGS] == (-1, 0)
 
 
 def test_folder_create_rename_delete_lifecycle():
@@ -198,12 +197,11 @@ def test_folder_delete_returns_members_home():
     st = api.folder_delete(0)
     assert st["folderNames"] == {}
     got = positions(st)
-    # member game goes back to the end of the games; H&S (NAND) after all of them
+    # Members use free positions; unrelated games keep their exact positions.
     assert got[f"g:{game}"][0] == -1
-    assert got[H_AND_S] == (-1, 16)
-    # games compact into pos 9 freed by the folder tile
+    assert got[H_AND_S] == (-1, 3)
     game_pos = sorted(p for k, (f, p) in got.items() if k.startswith("g:"))
-    assert game_pos == [3, 4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15]
+    assert game_pos == [4, 5, 6, 7, 9, 10, 11, 12, 13, 14, 15, 16]
 
 
 def test_folder_empty_keeps_folder():
@@ -285,8 +283,11 @@ def test_gap_is_free_when_launcher_present_and_reserved_without():
     st = api.import_sd()
     assert not any(s.get("hole") for s in st["system"])
     a, b = st["items"][0]["slot"], st["items"][1]["slot"]
-    st = api.swap_items(a, b)  # any mutation redistributes positions
+    st = api.swap_items(a, b)  # unrelated gaps survive mutations
     poss = sorted(p for k, (f, p) in positions(st).items() if k.startswith("g:"))
+    assert MOCK_CART_POS + 1 not in poss and MOCK_CART_POS + 2 in poss
+    st = api.compact_games(-1)
+    poss = [i["pos"] for i in st["items"]]
     assert MOCK_CART_POS + 1 in poss and MOCK_CART_POS + 2 not in poss
 
     api2 = build_api(mock=True, no_launcher=True)
