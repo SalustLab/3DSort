@@ -78,9 +78,11 @@ F:\Projects\3DSort\
 │                             savedata, launcher, icons, store, sdcard,
 │                             api_state, api_launcher_edit, api_keys,
 │                             api_settings, titledates, api_setup, packaging,
+│                             api_region (region-changed cards, §5.8),
 │                             ui_boot (the 405 trap §7 + UI consts), plus
 │                             test_integration.py: REAL save3ds (sdext +
-│                             nandsave) over copies + the G: guard (§3.1)
+│                             nandsave) over copies, and
+│                             test_real_sd_guard.py: the real-SD guard (§3.1)
 ├── tools/save3ds/save3ds_fuse.exe  ← v1.3.0 (wwylele/save3ds), extdata extract/import
 ├── tools/build_save3ds_macos.sh ← builds the native helper from source (pinned
 │                             v1.4.0; cross-platform despite the name — the
@@ -101,9 +103,14 @@ wins without overwriting the file).
 1. **No test, script or experiment writes to the real SD** (`G:` or `H:` on the
    dev machine, whatever letter Windows assigns; the guard uses `find_sd_drive`).
    All work runs against the **sandbox** (a copy).
-   `tests/test_integration.py::test_real_sd_untouched_guard` compares the real
+   `tests/test_real_sd_guard.py::test_real_sd_untouched_guard` compares the real
    extdata hash between runs and FAILS if anything wrote there — do not remove
-   or weaken that test.
+   or weaken that test, and do not move it back into a module that carries a
+   `pytestmark` skip. It lived in `test_integration.py` until 2026-09-20, where
+   that module's sandbox skipif silenced it on every checkout without
+   `sandbox/` — the guard needs no sandbox and must never be gated on one. It
+   hashes EVERY known HOME menu extdata, keyed by id0 and extdata id, because a
+   region-changed card carries two under one id0.
 2. **Every SD write is preceded by an automatic backup** (`Backups.create(kind="auto")`
    inside `Api.write_sd`). Product rule, not a detail: never remove.
 3. **Real writes only through explicit user action** (confirmation modal).
@@ -116,7 +123,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (205; real integration skipped without sandbox/keys; the real-SD guard
+# tests (238; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -316,12 +323,21 @@ are staged changes (entity keys, §6); the write generates an injection payload
   USA `0002008f` · EUR `00020098` · CHN `000200a1` · KOR `000200a9` · TWN
   `000200b1`** (`NAND_SAVE_IDS` in core/sdcard.py, derived from
   `HOME_EXTDATA_IDS`; §5.1 caveat about CHN/KOR/TWN applies).
-- **REGION CHANGE (known limitation)**: `_nand_save_id()` reads the region from
-  the SD's EXTDATA; `3DSort_dump.gm9` uses the NAND SecureInfo's `$[REGION]`.
-  On a region-changed console they can disagree → `--nandsave` with the wrong
-  ID. No corruption: `save3ds` fails and `_read_launcher` degrades to
-  read-only. `prefer_id0` makes this rare. If reported, fix = read the region
-  from the container itself.
+- **REGION CHANGE (fixed 2026-09-20)**: a CTRTransfer leaves the old
+  region's HOME menu extdata on the SD beside the live one — under the SAME
+  id0, so `prefer_id0` does not disambiguate — and both system saves on the
+  NAND. Upstream picked the dead one twice over: `find_console` returned the
+  first region in `HOME_EXTDATA_IDS` order, and `3DSort_dump.gm9` chose the
+  save id from SecureInfo's `$[REGION]`, which a CTRTransfer does not rewrite.
+  Now: `find_consoles` returns every candidate ranked by (id0 match, last
+  write); the dump script consults no region at all and copies every save that
+  exists; `Api._resolve_console` takes the user's stored answer
+  (`settings.json` → `region_by_id0`) and otherwise stops at the `pick_region`
+  wizard stage rather than guessing. Only the picked region is ever written —
+  the pre-transfer set stays bit-identical as a fallback. Icon counts are shown
+  as evidence but NEVER decide: a heavily used console transferred to a fresh
+  region leaves the bigger extdata behind. Full diagnosis:
+  `docs/REGION_CHANGE.md`.
 - **Sources, in order of precedence** (`Api._find_container`/`_read_launcher`):
   1. CONTAINER `homemenu_save.bin` (the whole `00000000`, 64KB DISA) — the
      EDITABLE channel. Lookup: `<sd>/3DSort/` (where the dump script leaves it)
@@ -329,7 +345,10 @@ are staged changes (entity keys, §6); the write generates an injection payload
      `homemenu_save_new.bin` takes precedence (the app's truth). A container
      from ANOTHER console does not decrypt: `nand_extract` raises
      `Signature mismatch` and `_read_launcher` FALLS BACK to read-only instead
-     of killing the import.
+     of killing the import. It also records WHY in `_launcher_error`
+     (`launcherError` in `get_state`, banner on SYNC): a silent degrade renders
+     as a plausible layout — every system app pinned, no folders — which is
+     exactly what a region-changed card produced before the 2026-09-20 fix.
   2. Plain `Launcher.dat` (dump via mount A:) — READ-ONLY fallback (v1).
   3. Nothing — inference by gaps (placeholder "System app").
 - **Write channel (hardware-validated)**: save3ds
@@ -343,7 +362,11 @@ are staged changes (entity keys, §6); the write generates an injection payload
   `cp --hash` of `3DSort_dump`. The app NEVER fabricates that anchor: a
   launcher write requires the fresh bin+sha pair from GM9 (else an error asking
   for a re-dump), and the post-inject promote DISCARDS the anchors — every
-  launcher write cycle starts with a fresh dump. A full restore may dump+inject
+  launcher write cycle starts with a fresh dump. `_promote_region_dump` COPIES
+  the picked region's `homemenu_save_<saveid>.bin(.sha)` onto
+  `homemenu_save.bin(.sha)`; that is not a fabrication — both files come from
+  GM9's own `cp --hash` — and it is what keeps the inject script's gate 2
+  anchor at one fixed path now that the dump writes one pair per save id. A full restore may dump+inject
   in one GM9 session (gate 2 becomes a tautology; acceptable, the intent is
   overwrite-everything).
 - **Keys without manual copying**: `3DSort_dump.gm9` is published on EVERY
@@ -354,11 +377,13 @@ are staged changes (entity keys, §6); the write generates an injection payload
   returns a friendly error covering both id0-mismatch cases (old key OR a new
   console that must boot HOME once).
 - **The dump script is CONSOLE-AGNOSTIC**: `gm9_dump_script()` takes no
-  id0/save_id; the script resolves `$[SYSID0]` and `$[REGION]` (SecureInfo) on
-  the console in an `if chk`/`elif` generated from `NAND_SAVE_IDS`, aborting on
-  unsupported regions (avoids a silent `sysdata//00000000`). A baked-in id0 = a
-  broken script on any multi-console card. It also creates `0:/3DSort` if
-  missing. `3DSort_inject.gm9` REMAINS per console: keys were validated against
+  id0/save_id; the script resolves `$[SYSID0]` on the console. A baked-in id0 =
+  a broken script on any multi-console card. It does NOT read `$[REGION]`
+  (SecureInfo lies after a CTRTransfer): it tries every id in `NAND_SAVE_IDS`
+  and copies each save that exists to `0:/3DSort/homemenu_save_<saveid>.bin`,
+  reporting "No HOME menu system save was found" when none matched (EmuNAND, or
+  a region 3DSort does not know). Choosing between them is the app's job, with
+  the SD extdata in front of it. It also creates `0:/3DSort` if missing. `3DSort_inject.gm9` REMAINS per console: keys were validated against
   the right id0 by then, and its 3 sha gates abort on the wrong console.
 - **Injection**: the app publishes `<sd>/3DSort/homemenu_save_new.bin` + `.sha`
   + scripts `<sd>/gm9/scripts/3DSort_{dump,inject}.gm9`. The inject has hard
@@ -448,10 +473,19 @@ are staged changes (entity keys, §6); the write generates an injection payload
   dump before the next launcher write (§5.8). Returns `import_sd()`.
 - `get_setup_state()`: `{stage, detail}` for the onboarding wizard. `ready`
   (staging exists = shortcut, or get_state OK) | `no_keys` | `stale_keys` |
-  `no_sd` | `error`. Classifies by substring of OUR error messages,
-  server-side; order matters (the keys message contains "not found"). Wraps
-  `get_state` in try/except (`find_console` raises directly on js_api). Mock
-  always resolves `ready`.
+  `pick_region` | `no_sd` | `error`. Classifies by substring of OUR error
+  messages, server-side; order matters (the keys message contains "not
+  found"; `pick_region` matches `PICK_REGION_ERROR` exactly and is checked
+  first). `pick_region` is only reached AFTER the keys resolve, so the picker
+  can show what is inside each candidate. Wraps `get_state` in try/except
+  (`find_console` raises directly on js_api). Mock always resolves `ready`.
+- Region (§5.8): `region_candidates()` → `{candidates: [{region, extdataId,
+  saveId, suggested, lastUsed, games, folders, error}], current}` for the
+  resolved id0, best first; counts are evidence, never the decision.
+  `set_region(region, force=False)` stores the answer per id0 and re-imports;
+  refused while an inject is pending or a write is being recovered, and returns
+  `{error, needsConfirm: true}` instead of silently dropping staged changes
+  (the UI confirms and retries with `force=True`).
 - Settings: `list_drives()` → `{drives: [{root, current}]}` (D..P scan for
   `Nintendo 3DS/`); `set_sd_root(path)` validates, re-imports (staging reset;
   pending inject kept); `set_backups_dir(path)` moves zips + history.jsonl
@@ -537,7 +571,9 @@ are staged changes (entity keys, §6); the write generates an injection payload
   can be null and `renderTop`/`bind` dereference `S.*`):
   - `renderWizard(stage, detail)` EXECUTES the setup, only when the app cannot
     open. The stage picks the screen: `no_sd` (drives + CFW prerequisite +
-    Rescan), `no_keys`/`stale_keys` (dump steps + `BTN_WIZ_VERIFY`), `error`
+    Rescan), `no_keys`/`stale_keys` (dump steps + `BTN_WIZ_VERIFY`),
+    `pick_region` (one card per HOME menu candidate with its contents; SYNC's
+    "Change region..." reopens this same screen), `error`
     (its OWN screen: a real failure must not masquerade as a fresh install).
     Every screen shows the backend's `detail` and a "Read the guide" link.
   - `renderGuide(page)` only READS: paginates `INSTRUCTION_PAGES`, no action
@@ -568,7 +604,9 @@ are staged changes (entity keys, §6); the write generates an injection payload
    icon decode tested with the inverse ENCODER inside the test itself.
 2. **Real integration** (skipped without keys): actual save3ds over a **fresh
    sandbox copy per test** (`sd` fixture); extract → edit → import → re-extract
-   → compare. Includes the **real SD guard** (§3.1).
+   → compare. The **real SD guard** (§3.1) is NOT here: it lives in
+   `tests/test_real_sd_guard.py` so this module's sandbox skipif cannot
+   silence it.
 3. **On-screen UI via Playwright** (MCP, manually assisted): against `--serve`
    (mock or sandbox). Validated coverage: drag + staging; folders; presets;
    undo/redo; write modal; post-import persistence; restore; toggles; preview.
@@ -593,7 +631,7 @@ SD + a Playwright step if it has a UI gesture.
 ## 10. Current state and roadmap
 
 **Shipped: v1.2.0** (badges + exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-205 tests. Version lives in `VERSION` in ui/app.js (single source). README
+238 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 

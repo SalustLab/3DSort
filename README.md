@@ -119,6 +119,27 @@ The first run walks you through it: pick the SD card, run `3DSort_dump` on the
 console, press verify. Settings has a "Setup guide" entry that reopens the same
 walkthrough at any time, and the INSTRUCTIONS tab keeps the whole procedure.
 
+### If your console's region was changed (CTRTransfer)
+
+Changing a console's region does not remove the HOME menu layout it had before.
+Both sit on the card side by side, and only one of them is the layout your
+console actually uses — the other is frozen at the moment of the change.
+
+3DSort asks which one is yours the first time it sees the card, and shows what
+is in each so you can tell them apart:
+
+```
+USA   52 games, 3 folders    last used 2024-03-14 18:05   ← suggested
+JPN    4 games, no folders   last used 2023-11-02 09:40
+```
+
+The suggested one is whichever was written most recently, which is almost
+always the live one — but you decide, and the answer is remembered. You can
+change it later from the SYNC tab.
+
+**Only the layout you pick is ever written to.** The one from before the region
+change is left untouched, byte for byte, so it stays available as a fallback.
+
 ## Running from source
 
 ```
