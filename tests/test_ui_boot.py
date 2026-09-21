@@ -177,6 +177,36 @@ def test_the_script_is_already_on_the_card_is_one_const_shown_where_it_matters()
     assert "GM9_SCRIPT_ON_CARD" in pages, "one source, no retyped copy"
 
 
+# ---- region picker (CTRTransfer cards) -------------------------------------
+
+def test_wizard_has_a_pick_region_stage():
+    """A region-changed card stops setup here. It is a stage, not a settings
+    screen: the user must answer before any layout is shown as theirs."""
+    assert '"pick_region"' in APP_JS
+    wiz = region("async function renderWizard(stage, detail)", "\nasync function wizAdvance")
+    assert "region_candidates" in wiz
+    assert "set_region" in wiz
+
+
+def test_pick_region_screen_shows_the_evidence():
+    wiz = region("async function renderWizard(stage, detail)", "\nasync function wizAdvance")
+    for field in ("lastUsed", "games", "folders", "suggested"):
+        assert field in wiz, field
+
+
+def test_sync_screen_surfaces_a_launcher_failure():
+    """launcherWritable:false alone renders as a plausible layout (everything
+    pinned, no folders); the reason has to be on screen."""
+    sync = region("function syncScreen()", "\n// ---- guidance content")
+    assert "S.launcherError" in sync
+
+
+def test_sync_screen_can_change_the_region():
+    sync = region("function syncScreen()", "\n// ---- guidance content")
+    assert "changeRegionBtn" in sync
+    assert "sd.regionChoices" in sync
+
+
 def test_instruction_text_names_buttons_by_const():
     """"Import from SD" was never the button's label; it reads "Import layout
     from SD"."""

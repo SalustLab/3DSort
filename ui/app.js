@@ -492,11 +492,13 @@ function syncScreen() {
         </div>
         <div style="text-align:center">
           <div style="font-weight:900;font-size:15px">${sd.root ? `SDHC card · ${esc(sd.root)}` : "SD not found"}</div>
-          <div style="font-size:12px;color:var(--mut);font-weight:700">${sd.region ? `<span style="color:#5f9e17">●</span> mounted · Nintendo 3DS folder found` : "insert the console's SD card"}</div>
+          <div style="font-size:12px;color:var(--mut);font-weight:700">${sd.region ? `<span style="color:#5f9e17">●</span> mounted · ${esc(sd.region)} HOME menu` : "insert the console's SD card"}</div>
+          ${sd.regionChoices > 1 ? `<div class="chipbtn" id="changeRegionBtn" style="margin-top:8px;border-width:1.5px;border-radius:8px;padding:5px 12px;font-size:11.5px;font-weight:800">Change region…</div>` : ""}
         </div>
         ${usage}
       </div>
       ${recoveryPanel()}
+      ${S.launcherError ? `<div style="display:flex;gap:8px;background:#fde8ec;border:1px solid var(--red);border-radius:10px;padding:10px 12px;font-size:11.5px;font-weight:700;color:var(--red);line-height:1.45"><span class="dot">!</span> ${esc(S.launcherError)}</div>` : ""}
       <div class="btn" id="importBtn">⇣ Import layout from SD</div>
       <div class="btn" id="backupBtn">⛉ Back up current layout</div>
       <div class="btn primary" id="writeBtn2">${n ? `WRITE ${n} STAGED CHANGE${n === 1 ? "" : "S"} ▸` : "NOTHING STAGED"}</div>
@@ -692,6 +694,12 @@ function bind() {
   };
   if ($("importBtn")) $("importBtn").onclick = async () => { if (await refresh("import_sd")) toast("Layout imported from SD"); };
   if ($("backupBtn")) $("backupBtn").onclick = async () => { if (await refresh("backup_manual")) toast("Backup saved"); };
+  // reuses the wizard screen rather than duplicating it as a modal, so the
+  // choice is presented in exactly one place
+  if ($("changeRegionBtn")) $("changeRegionBtn").onclick = () => {
+    wizChrome(true, "HOME MENU REGION");
+    renderWizard("pick_region", null);
+  };
   if ($("prevPage")) $("prevPage").onclick = () => { P.page = Math.max(1, P.page - 1); savePrefs(); render(); };
   if ($("nextPage")) $("nextPage").onclick = () => { P.page++; savePrefs(); render(); };
   if ($("viewSeg")) $("viewSeg").querySelectorAll("[data-rows]").forEach(el => el.onclick = () => { P.viewRows = +el.dataset.rows; savePrefs(); render(); });
@@ -1023,6 +1031,42 @@ async function renderWizard(stage, detail) {
        <div style="font-size:12px;color:var(--mut);font-weight:700;line-height:1.5">Check that the card is fully inserted and try again. If it keeps failing, run 3DSort_dump on the console to refresh the console data.</div>`,
       `${guideLink}<div class="btn primary" id="wizRetry" style="padding:9px 18px;font-size:12.5px;border-radius:9px">TRY AGAIN</div>`);
     $("wizRetry").onclick = () => wizAdvance();
+
+  } else if (stage === "pick_region") {
+    // A region-changed console (CTRTransfer) leaves the pre-change layout on the
+    // card beside the live one. The app ranks them by last write, but that is a
+    // suggestion: the counts are on screen so the user recognises their own
+    // library rather than trusting a heuristic.
+    const r = await callRaw("region_candidates") || { candidates: [] };
+    const rows = (r.candidates || []).map(c => `
+      <div class="card" data-region="${esc(c.region)}" style="display:flex;align-items:center;gap:12px;cursor:pointer;border:${c.suggested ? "2px solid var(--red)" : "1.5px solid var(--line)"}">
+        <div style="flex:1;min-width:0">
+          <div style="font-weight:900;font-size:14px">${esc(c.region)}${c.suggested ? ` <span style="color:var(--red);font-size:11px">SUGGESTED</span>` : ""}</div>
+          <div style="font-size:11.5px;color:var(--mut);font-weight:700">${c.error
+            ? esc("could not be read: " + c.error)
+            : `${c.games} game${c.games === 1 ? "" : "s"} · ${c.folders} folder${c.folders === 1 ? "" : "s"}`}</div>
+        </div>
+        <div class="dot" style="font-size:10px;color:var(--mut);white-space:nowrap">last used<br>${esc(c.lastUsed)}</div>
+        <div class="btn primary" style="padding:7px 14px;font-size:12px;border-radius:9px">USE ${esc(c.region)}</div>
+      </div>`).join("");
+    $("screen").innerHTML = wizCard("Two HOME menu layouts on this card",
+      "This console's region was changed, so the layout from before the change is still on the card. Only one of them is the one the console uses.",
+      `<div style="display:flex;flex-direction:column;gap:8px">${rows}</div>
+       <div style="font-size:11.5px;color:var(--mut);font-weight:700;line-height:1.5">The suggested one was written most recently, which is almost always the live one. Pick the one that looks like your library. 3DSort only ever writes to the one you pick; the other is left untouched.</div>
+       ${wizDetail(detail)}`,
+      `${guideLink}`);
+    document.querySelectorAll("[data-region]").forEach(el => el.onclick = async () => {
+      // the backend refuses a switch that would silently drop staged edits and
+      // answers with needsConfirm; it refuses outright when a payload is waiting
+      let res = await callRaw("set_region", [el.dataset.region]);
+      if (res && res.needsConfirm &&
+          confirm(res.error + "\n\nDiscard them and switch?")) {
+        res = await callRaw("set_region", [el.dataset.region, true]);
+      }
+      if (res && !res.error) { S = res; wizChrome(false); return render(); }
+      if (res && res.error) return toast(res.error);
+      wizAdvance();
+    });
 
   } else {   // no_sd, and anything unrecognised: ask for the card
     const r = await callRaw("list_drives");
