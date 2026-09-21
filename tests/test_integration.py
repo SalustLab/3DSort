@@ -113,33 +113,6 @@ def test_nandsave_roundtrip_on_copy(s3, tmp_path):
         assert (out1 / rel).read_bytes() == (out2 / rel).read_bytes()
 
 
-def test_real_sd_untouched_guard():
-    """No test alters the real SD: the extdata hashes on G: are compared at session
-    start/end. Hashed per id0 folder and keyed by folder name, so swapping in another
-    card (or a card carrying leftover id0 folders) reports 'unknown', never a false
-    'modified' - and every known folder still gets checked.
-
-    Known limitation: a legitimate write from the APP also trips this (the guard
-    cannot tell who wrote). When it fires, check the extdata timestamps against the
-    backup history before assuming a test misbehaved, then re-register the baseline."""
-    from core.sdcard import find_sd_drive
-    drive = find_sd_drive()          # whatever letter Windows gave the card today
-    if drive is None:
-        pytest.skip("real SD not mounted")
-    real = Path(drive) / "Nintendo 3DS"
-    import hashlib
-    marker = Path(__file__).parent / ".real_sd_hash"
-    known = dict(line.split(None, 1) for line in
-                 marker.read_text().split("\n") if line.strip()) if marker.exists() else {}
-    seen = {}
-    for ext in sorted(real.glob("*/*/extdata/00000000/0000008f")):
-        h = hashlib.sha256()
-        for p in sorted(ext.rglob("*")):
-            if p.is_file():
-                h.update(p.name.encode())
-                h.update(p.read_bytes())
-        id0 = ext.relative_to(real).parts[0]
-        seen[id0] = h.hexdigest()
-        if id0 in known:
-            assert known[id0] == seen[id0], f"REAL SD WAS MODIFIED by some test! ({id0})"
-    marker.write_text("\n".join(f"{k} {v}" for k, v in sorted({**known, **seen}.items())))
+# The real-SD guard moved to tests/test_real_sd_guard.py: this module's
+# pytestmark skips everything without sandbox/, and the guard needs no sandbox -
+# behind that skip it protected nothing on any checkout but the maintainer's.
