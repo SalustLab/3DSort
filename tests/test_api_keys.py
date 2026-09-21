@@ -34,26 +34,33 @@ def test_dump_script_dumps_all_needed_files():
     assert "0:/3DSort/movable.sed" in txt
     assert "M:/boot9.bin" in txt
     assert "0:/3DSort/boot9.bin" in txt
-    assert "0:/3DSort/homemenu_save.bin" in txt
     assert "--hash" in txt  # container .sha anchor stays
 
 
-def test_dump_script_resolves_console_itself():
-    """The script asks GodMode9 for the console it is running on, so the same file
-    works on any console and can never point at a stale id0."""
+def test_dump_script_never_reads_the_console_region():
+    """$[REGION] comes from SecureInfo, which a CTRTransfer leaves naming the
+    PRE-transfer region while the live HOME menu uses the new one. Both saves are
+    on the NAND, so the wrong one used to dump cleanly and silently."""
+    txt = gm9_dump_script()
+    assert "$[REGION]" not in txt
+
+
+def test_dump_script_copies_every_save_that_exists():
+    """One unconditional block per known save id: whichever are on this console
+    land on the card, and the app decides between them with the SD extdata in
+    front of it."""
     txt = gm9_dump_script()
     assert "$[SYSID0]" in txt
-    for region, save_id in NAND_SAVE_IDS.items():
-        assert f'chk $[REGION] "{region}"' in txt
-        assert save_id in txt
+    for save_id in NAND_SAVE_IDS.values():
+        assert f"1:/data/$[SYSID0]/sysdata/{save_id}/00000000" in txt
+        assert f"0:/3DSort/homemenu_save_{save_id}.bin" in txt
 
 
-def test_dump_script_reports_unsupported_region():
-    """A region outside the map (AUS, or an unreadable SecureInfo) must say so
-    instead of silently building 'sysdata//00000000' and blaming the console."""
+def test_dump_script_reports_when_no_save_was_found():
+    """An EmuNAND, or a console 3DSort does not know, must say so instead of
+    leaving the user with keys and no container and no explanation."""
     txt = gm9_dump_script()
-    assert "else\n" in txt
-    assert "not supported" in txt
+    assert "No HOME menu system save was found" in txt
 
 
 # ---- script publishing on import (kills the chicken-and-egg) ----------------

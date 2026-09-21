@@ -49,9 +49,12 @@ class Backups:
         self._hist = self.root / "history.jsonl"
 
     def create(self, extdata_dir: Path, kind: str, note: str,
-               extra: dict | None = None) -> dict:
+               extra: dict | None = None, meta: dict | None = None) -> dict:
         """extra: {arcname: bytes | Path} - files outside the extdata tree
-        (e.g. __nand__/Launcher.dat); restore separates them from the SD extract."""
+        (e.g. __nand__/Launcher.dat); restore separates them from the SD extract.
+        meta: extra history fields, e.g. {"extdataId": ...} so a restore can tell
+        which HOME menu layout the snapshot belongs to (a region-changed card
+        carries two, and they are not interchangeable)."""
         ts = time.strftime("%Y%m%d-%H%M%S")
         bid = f"{ts}-{len(self.history())}"
         zpath = self.root / f"layout_{bid}.3dsl"
@@ -70,7 +73,7 @@ class Backups:
                 else:
                     z.write(src, arcname)
         entry = {"id": bid, "file": zpath.name, "kind": kind, "note": note,
-                 "when": time.strftime("%Y-%m-%d %H:%M:%S")}
+                 "when": time.strftime("%Y-%m-%d %H:%M:%S"), **(meta or {})}
         with self._hist.open("a", encoding="utf-8") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
         self._prune()

@@ -23,7 +23,8 @@ from core.icons import (cache_index, icon_png_b64, smdh_entry, smdh_short_name,
                         twl_icon_png_b64, twl_short_name)
 from core.launcher import Launcher, parse as parse_launcher
 from core.savedata import SaveData
-from core.sdcard import (NAND_SAVE_IDS, SAVE3DS_NAME, Save3ds, find_console,
+from core.sdcard import (NAND_SAVE_IDS, SAVE3DS_NAME, Console, Save3ds,
+                         extdata_mtime, find_console, find_consoles,
                          find_sd_drive, id0_from_movable, list_3ds_roots)
 from core.store import Backups, Staging
 from core import titledates
@@ -37,6 +38,11 @@ APP_DIR = Path.home() / "3DSort"
 
 # staging sub-state that lives in Launcher.dat (NAND); the rest is SaveData.dat (SD)
 LAUNCHER_KEYS = ("nand_pos", "nand_folder", "folder_defs", "cart_pos")
+
+# get_setup_state turns this into the pick_region wizard stage. Kept as one
+# string so the UI never has to parse a message.
+PICK_REGION_ERROR = ("Several HOME menu layouts on this card: choose which one "
+                     "the console uses.")
 
 
 def _serialized_api(cls):
@@ -60,7 +66,8 @@ class Api(LayoutApi, WriteApi):
 
     def __init__(self, save3ds: Save3ds, sd_root: Path | None, workdir: Path,
                  backups: Backups, launcher: Path | None = None,
-                 container: Path | None = None):
+                 container: Path | None = None,
+                 region_choices: dict[str, str] | None = None):
         self.save3ds = save3ds
         self._operation_lock = threading.RLock()
         self.sd_root = sd_root
@@ -69,11 +76,16 @@ class Api(LayoutApi, WriteApi):
         self.launcher_path = launcher      # flat Launcher.dat (read-only fallback)
         self.container_path = container    # homemenu_save.bin (system save, editable)
         self.console = None
+        # {id0: region} - which HOME menu a region-changed card uses. A heuristic
+        # that re-runs on every import can flip-flop; the user's answer must not.
+        self._region_choices = dict(region_choices or {})
+        self._candidates = []
         self.staging = None
         self._names = {}
         self._icons = {}
         self._unknown_holes = {}   # {container: {pos below max with no known owner}}
         self._launcher_writable = False
+        self._launcher_error = None    # why the container could not be opened
         self._launcher_raw = None      # Launcher.dat bytes as loaded
         self._launcher_baseline = None  # launcher sub-state at load (for dirty check)
         self._container_sha = None     # container sha at parse (anti-stale gate)
@@ -96,7 +108,8 @@ class Api(LayoutApi, WriteApi):
         # the movable dumped on the card names the console that owns it: it is the
         # only way to tell the live id0 from leftovers of older states/consoles
         sd_id0 = self._sd_movable_id0()
-        self.console = find_console(self.sd_root, prefer_id0=sd_id0)
+        self._candidates = find_consoles(self.sd_root, prefer_id0=sd_id0)
+        self.console = self._resolve_console()
         if self._recovery_info():
             journal = json.loads((self._transaction_dir() / "journal.json").read_text("utf-8"))
             card_error = self._connected_card_error(journal)
@@ -108,6 +121,9 @@ class Api(LayoutApi, WriteApi):
         err = self._resolve_keys()
         if err:
             return {"error": err}
+        # after the keys, so the picker can show what is actually inside each one
+        if self.console is None:
+            return {"error": PICK_REGION_ERROR}
         if self._recovery_info():
             if self.staging is None:
                 def integer_keys(value):
@@ -188,9 +204,28 @@ class Api(LayoutApi, WriteApi):
             holes = {c: set(range(max(ps) + 1)) - ps for c, ps in occ.items()}
             self._unknown_holes = {c: h for c, h in holes.items() if h}
 
+    def _resolve_console(self) -> Console | None:
+        """The stored answer for this card, else the only candidate, else None
+        (ask). Candidates for OTHER id0 folders are leftovers from other consoles
+        and never compete: find_consoles already sorted the live id0 to the top."""
+        if not self._candidates:
+            return None
+        id0 = self._candidates[0].id0
+        here = [c for c in self._candidates if c.id0 == id0]
+        stored = self._region_choices.get(id0)
+        if stored is not None:
+            hit = next((c for c in here if c.region == stored), None)
+            if hit is not None:
+                return hit
+            # the extdata the user picked is gone (renamed or deleted by hand)
+            self._region_choices.pop(id0, None)
+            self._save_settings()
+        return here[0] if len(here) == 1 else None
+
     def _nand_save_id(self) -> str:
-        region = self.console.region if self.console else "USA"
-        return NAND_SAVE_IDS[region]
+        if self.console is None:
+            raise RuntimeError("No HOME menu region resolved for this card yet.")
+        return NAND_SAVE_IDS[self.console.region]
 
     def _publish_dump_script(self, root=None):
         """Publishes 3DSort_dump.gm9 to the SD on every import. It is what spits
@@ -244,6 +279,20 @@ class Api(LayoutApi, WriteApi):
                     "state: re-dump it in GodMode9 (run 3DSort_dump).")
         return None
 
+    def _promote_region_dump(self, sd3: Path, src: Path):
+        """The inject script's gate 2 anchor is 0:/3DSort/homemenu_save.bin.sha.
+        The dump script writes one pair per save id, so the picked region's pair
+        becomes the canonical one. The bytes were already verified by GodMode9's
+        cp --hash, so copying them here does not fabricate an anchor."""
+        import shutil
+        dst = sd3 / "homemenu_save.bin"
+        if dst.exists() and dst.read_bytes() == src.read_bytes():
+            return
+        shutil.copy2(src, dst)
+        sha = src.parent / (src.name + ".sha")
+        if sha.exists():
+            shutil.copy2(sha, sd3 / "homemenu_save.bin.sha")
+
     def _find_container(self) -> Path | None:
         cands = []
         if self.sd_root is not None:
@@ -251,6 +300,12 @@ class Api(LayoutApi, WriteApi):
             if self._pending_inject_info():
                 # a write is published: the GENERATED container is the app's truth
                 cands.append(sd3 / "homemenu_save_new.bin")
+            if self.console is not None:
+                # the dump script leaves one file per save id present on the NAND
+                picked = sd3 / f"homemenu_save_{self._nand_save_id()}.bin"
+                if picked.exists():
+                    self._promote_region_dump(sd3, picked)
+                    cands.append(picked)
             cands.append(sd3 / "homemenu_save.bin")
         if self.container_path:  # explicit (build_api: sandbox/APP_DIR; mock: tmp)
             cands.append(Path(self.container_path))
@@ -259,6 +314,7 @@ class Api(LayoutApi, WriteApi):
     def _read_launcher(self) -> bytes | None:
         """Container (editable, via save3ds --nandsave) > flat file (read-only)."""
         self._launcher_writable = False
+        self._launcher_error = None
         self._container_sha = None
         cont = self._find_container()
         if cont is not None:
@@ -273,7 +329,16 @@ class Api(LayoutApi, WriteApi):
                 # container from another console (or another console state): its CMAC
                 # does not verify with the current keys. The SD layout is still fine,
                 # so degrade to the read-only fallback instead of failing the import.
+                # Upstream stopped here, and a silent degrade reads as a layout: the
+                # grid shows every system app pinned and no folders, which is exactly
+                # what a region-changed card produced.
                 self.container_path = None
+                self._launcher_error = (
+                    f"The HOME menu save on the card does not decrypt as the "
+                    f"{self.console.region} save ({NAND_SAVE_IDS[self.console.region]}) "
+                    f"this card's layout needs. On a region-changed console the old "
+                    f"region's save can be the one that was dumped. System apps and "
+                    f"folders stay read-only until 3DSort_dump is run again.")
             else:
                 self.container_path = cont
                 self._container_sha = hashlib.sha256(cont.read_bytes()).hexdigest()
@@ -331,6 +396,7 @@ class Api(LayoutApi, WriteApi):
             "folderPos": {fid: d["pos"] for fid, d in st["folder_defs"].items()},
             "folderRows": {fid: d["rows"] for fid, d in st["folder_defs"].items()},
             "launcherWritable": self._launcher_writable,
+            "launcherError": self._launcher_error,
             "launcherDirty": self._launcher_dirty(st),
             "pendingInject": self._pending_inject_info(),
             "staged": list(self.staging.staged),
@@ -347,7 +413,7 @@ class Api(LayoutApi, WriteApi):
 
     def get_setup_state(self):
         """Why the grid is not available yet, for the first-run wizard.
-        Stages: ready | no_sd | no_keys | stale_keys | error."""
+        Stages: ready | no_sd | no_keys | stale_keys | pick_region | error."""
         if self.staging is not None:
             return {"stage": "ready", "detail": None}
         try:
@@ -358,7 +424,9 @@ class Api(LayoutApi, WriteApi):
             return {"stage": "ready", "detail": None}
         msg = r["error"]
         # order matters: the keys message also contains "not found"
-        if "Console keys not found" in msg:
+        if msg == PICK_REGION_ERROR:
+            stage = "pick_region"
+        elif "Console keys not found" in msg:
             stage = "no_keys"
         elif "does not match this SD" in msg:
             stage = "stale_keys"
@@ -369,8 +437,14 @@ class Api(LayoutApi, WriteApi):
         return {"stage": stage, "detail": msg}
 
     def _sd_info(self):
+        # >1 means this card carries a pre-region-change layout too, so the SYNC
+        # tab offers the switch. 1 keeps the chip static.
+        choices = (len([c for c in self._candidates
+                        if c.id0 == self._candidates[0].id0])
+                   if self._candidates else 0)
         info = {"region": self.console.region if self.console else None,
-                "root": str(self.sd_root) if self.sd_root else None}
+                "root": str(self.sd_root) if self.sd_root else None,
+                "regionChoices": choices}
         if self.sd_root is not None:
             try:
                 import shutil
@@ -533,8 +607,15 @@ class Api(LayoutApi, WriteApi):
     # ---- SD + NAND ---------------------------------------------------------
     def backup_manual(self):
         self.backups.create(self.workdir / "extract", kind="manual",
-                            note="manual backup", extra=self._backup_extra())
+                            note="manual backup", extra=self._backup_extra(),
+                            meta=self._backup_meta())
         return self.get_state()
+
+    def _backup_meta(self) -> dict:
+        """Which HOME menu layout the snapshot is of. A region-changed card
+        carries two, and they are NOT interchangeable: the SD game tids match
+        across regions, the system app tids and folder ids do not."""
+        return {"extdataId": self.console.extdata_id} if self.console else {}
 
     def _backup_extra(self) -> dict:
         """Launcher/container go into the zip outside the extdata tree (__nand__/)."""
@@ -552,6 +633,15 @@ class Api(LayoutApi, WriteApi):
     def restore_backup(self, backup_id: str):
         if self._recovery_info():
             return {"error": "Recover the interrupted write first."}
+        # A snapshot belongs to ONE of a region-changed card's two layouts.
+        # Backups taken before this field existed carry no id and stay
+        # restorable: they predate the app ever offering a second layout.
+        entry = next((e for e in self.backups.history() if e["id"] == backup_id), None)
+        if (entry and entry.get("extdataId") and self.console is not None
+                and entry["extdataId"] != self.console.extdata_id):
+            return {"error": "That backup is of a different HOME menu layout on "
+                             "this card. Switch back to the region it was taken "
+                             "from before restoring it."}
         import shutil
         # Validate in a private work directory before touching the active extract
         # or staging. Raw source buffers are part of the snapshot, so undo also
@@ -598,6 +688,15 @@ class Api(LayoutApi, WriteApi):
         payload to the SD (homemenu_save_new.bin + .sha + GM9 scripts). The real
         NAND only changes when the USER runs the inject script in GodMode9."""
         import shutil
+        # _launcher_writable is set only when save3ds --nandsave extracted this
+        # container under this save id, so it IS the proof that container and
+        # region are the same pair. Writing without it would build a payload for
+        # a save the console cannot have.
+        if not self._launcher_writable:
+            raise RuntimeError(
+                self._launcher_error or
+                "No HOME menu system save is loaded for this card. Run "
+                "3DSort_dump in GodMode9 and import again.")
         save_id = self._nand_save_id()
         nand = self.save3ds.build_nand_tree(self.workdir, Path(self.container_path),
                                             save_id)
@@ -741,7 +840,8 @@ class Api(LayoutApi, WriteApi):
         sp.parent.mkdir(parents=True, exist_ok=True)
         sp.write_text(json.dumps({
             "sd_root": str(self.sd_root) if self.sd_root else None,
-            "backups_dir": str(self.backups.root)}), encoding="utf-8")
+            "backups_dir": str(self.backups.root),
+            "region_by_id0": self._region_choices}), encoding="utf-8")
 
     def list_drives(self):
         roots = [str(p) for p in list_3ds_roots()]
@@ -760,6 +860,78 @@ class Api(LayoutApi, WriteApi):
         self.console = None
         self._save_settings()
         return self.import_sd()  # re-derives console, keys, container, receipt
+
+    def region_candidates(self):
+        """The HOME menu layouts on this card, best first, with what is inside
+        each one. The counts are EVIDENCE for the user, never the decision: a
+        heavily used console transferred to a fresh region leaves the bigger
+        container behind, so 'more icons' points at the dead one exactly when it
+        matters most."""
+        import shutil
+        if self.sd_root is None:
+            return {"error": "3DS SD card not found"}
+        if not self._candidates:
+            self._candidates = find_consoles(self.sd_root,
+                                             prefer_id0=self._sd_movable_id0())
+        id0 = self._candidates[0].id0
+        here = [c for c in self._candidates if c.id0 == id0]
+        out = []
+        for i, c in enumerate(here):
+            row = {"region": c.region, "extdataId": c.extdata_id,
+                   "saveId": NAND_SAVE_IDS[c.region], "suggested": i == 0,
+                   "lastUsed": time.strftime(
+                       "%Y-%m-%d %H:%M",
+                       time.localtime(extdata_mtime(c.extdata_dir))),
+                   "games": None, "folders": None, "error": None}
+            try:
+                dest = self.workdir / "candidates" / c.region
+                if dest.exists():
+                    shutil.rmtree(dest)
+                self.save3ds.extract(c.extdata_id, self.sd_root, dest)
+                sd = SaveData((dest / "user" / "SaveData.dat").read_bytes())
+                row["games"] = len(sd.entries)
+                # folder -1 is the home grid itself (savedata.py OFF_FOLDER), not
+                # a folder: counting it reads one folder too many on every card
+                row["folders"] = len({e.folder for e in sd.entries
+                                      if e.folder >= 0})
+            except Exception as e:      # unreadable candidate stays selectable
+                row["error"] = str(e)
+            out.append(row)
+        return {"candidates": out,
+                "current": self.console.region if self.console else None}
+
+    def set_region(self, region, force=False):
+        """Picks which HOME menu layout this card's console actually uses.
+
+        A card-level switch, guarded like set_sd_root: the staged edits and any
+        published payload describe titles and positions in the OTHER layout."""
+        if self.sd_root is None:
+            return {"error": "3DS SD card not found"}
+        if self._pending_inject_info():
+            return {"error": "A NAND inject is still pending for this card. Run "
+                             "3DSort_inject in GodMode9 (or verify it on the SYNC "
+                             "tab) before changing the HOME menu region."}
+        if self._recovery_info():
+            return {"error": "Recover the interrupted write before changing the "
+                             "HOME menu region."}
+        if not self._candidates:
+            self._candidates = find_consoles(self.sd_root,
+                                             prefer_id0=self._sd_movable_id0())
+        id0 = self._candidates[0].id0
+        hit = next((c for c in self._candidates
+                    if c.id0 == id0 and c.region == region), None)
+        if hit is None:
+            return {"error": f"No {region} HOME menu layout on this card."}
+        staged = len(self.staging.state["staged"]) if self.staging else 0
+        if staged and not force:
+            return {"error": f"{staged} staged change(s) would be discarded: they "
+                             f"describe the current layout, not the "
+                             f"{region} one.", "needsConfirm": True}
+        self._region_choices[id0] = region
+        self._save_settings()
+        self.console = hit
+        self.staging = None          # the layout is a different one now
+        return self.get_state()
 
     def pick_backups_dir(self):
         """Opens the native folder picker and applies the choice.
@@ -806,34 +978,40 @@ def pick_folder_native(initial: str) -> str | None:
 
 
 # ---- GodMode9 scripts ------------------------------------------------------
-# The dump script resolves the console itself ($[SYSID0]/$[REGION]) because it runs
-# before the app knows anything: a card can carry leftover id0 folders from older
-# consoles, and a script baked with the wrong one sends GodMode9 to a NAND path that
-# does not exist. The inject script is still generated per console: by then the keys
-# are validated against the right id0, and its sha gates abort on a mismatch anyway.
+# The dump script resolves the console itself because it runs before the app
+# knows anything: a card can carry leftover id0 folders from older consoles, and
+# a script baked with the wrong one sends GodMode9 to a NAND path that does not
+# exist. $[SYSID0] is kept for that. $[REGION] is NOT: it reads SecureInfo, and a
+# CTRTransfer region change leaves SecureInfo naming the pre-transfer region
+# while the live HOME menu uses the new one. Instead of choosing, the script
+# copies every HOME menu save present and lets the app decide with the SD extdata
+# in front of it. The inject script is still generated per console: by then the
+# keys are validated against the right id0, and its sha gates abort on a mismatch.
 def gm9_dump_script() -> str:
-    """Copies the HOME menu system save to the SD card. cp --hash writes the .sha
-    next to it, which is the staleness anchor for the inject script."""
-    branches = "".join(
-        f'{"if" if i == 0 else "elif"} chk $[REGION] "{region}"\n\tset SAVEID "{save_id}"\n'
-        for i, (region, save_id) in enumerate(NAND_SAVE_IDS.items()))
-    return f"""# 3DSort: dump the HOME menu system save and console keys to the SD card
-{branches}else
-\techo "Console region $[REGION] is not supported by 3DSort yet."
-\tgoto End
-end
-set SAVE "1:/data/$[SYSID0]/sysdata/$[SAVEID]/00000000"
+    """Copies the console keys and every HOME menu system save to the SD card.
+    cp --hash writes the .sha next to each one, which is the staleness anchor for
+    the inject script."""
+    dumps = "".join(
+        f'set SAVE "1:/data/$[SYSID0]/sysdata/{save_id}/00000000"\n'
+        f'if exist $[SAVE]\n'
+        f'\tcp --hash --overwrite --no_cancel $[SAVE] '
+        f'0:/3DSort/homemenu_save_{save_id}.bin\n'
+        f'\tset FOUND 1\n'
+        f'end\n'
+        for save_id in NAND_SAVE_IDS.values())
+    return f"""# 3DSort: dump the console keys and every HOME menu system save to the SD card
 if not find 0:/3DSort NULL
 \tmkdir 0:/3DSort
 end
 cp --overwrite --no_cancel 1:/private/movable.sed 0:/3DSort/movable.sed
 cp --overwrite --no_cancel M:/boot9.bin 0:/3DSort/boot9.bin
-if not exist $[SAVE]
-\techo "HOME menu save not found ($[REGION]). Is this SysNAND, not EmuNAND?"
+set FOUND 0
+{dumps}if chk $[FOUND] "0"
+\techo "No HOME menu system save was found on this console."
+\techo "Is this SysNAND, not EmuNAND?"
 \tgoto End
 end
-cp --hash --overwrite --no_cancel $[SAVE] 0:/3DSort/homemenu_save.bin
-echo "Dumped save and keys. Edit the layout in 3DSort on the PC, then run 3DSort_inject."
+echo "Dumped the keys and the HOME menu save. Edit the layout in 3DSort on the PC, then run 3DSort_inject."
 @End
 """
 
@@ -1067,7 +1245,8 @@ def build_api(mock: bool, sd_root: Path | None = None,
         Save3ds(ROOT / "tools" / "save3ds" / SAVE3DS_NAME,
                 key("boot9.bin"), key("movable.sed")),
         sd_root, workdir, Backups(backups_root), launcher=launcher,
-        container=container)
+        container=container,
+        region_choices=settings.get("region_by_id0") or {})
 
 
 def serve(api: Api, port: int):

@@ -9,7 +9,7 @@ from pathlib import Path
 from core import badges, layout
 from core.savedata import SaveData
 from core.launcher import Launcher
-from core.sdcard import find_console
+from core.sdcard import find_consoles
 
 
 def digest(path):
@@ -29,10 +29,15 @@ class WriteApi:
             "id0": self.console.id0, "id1": self.console.id1,
         }
         try:
-            current = find_console(self.sd_root, prefer_id0=self._sd_movable_id0())
+            # every candidate, not the best one: on a region-changed card the
+            # user may have picked the OLDER region, and re-deriving a single
+            # console here would re-decide that and refuse the card. What this
+            # guard owns is the CARD's identity - same drive, same id0/id1, and
+            # the picked extdata still present.
+            current = find_consoles(self.sd_root, prefer_id0=self._sd_movable_id0())
             matches = (expected["sd"] == str(Path(self.sd_root).resolve()) and
-                       expected["id0"] == current.id0 and expected["id1"] == current.id1 and
-                       current.extdata_id == self.console.extdata_id)
+                       any(expected["id0"] == c.id0 and expected["id1"] == c.id1 and
+                           c.extdata_id == self.console.extdata_id for c in current))
         except (OSError, ValueError):
             matches = False
         if not matches:
@@ -148,7 +153,8 @@ class WriteApi:
         # Build the complete NAND payload before any SD import.
         if dirty:
             self._write_launcher(st, len(self.staging.staged), destination=tx / "payload")
-        backup = self.backups.create(home, kind="auto", note="before writing staged layout", extra=extra)
+        backup = self.backups.create(home, kind="auto", note="before writing staged layout",
+                                     extra=extra, meta=self._backup_meta())
         j = dict(version=1, sd=str(Path(self.sd_root).resolve()), id0=self.console.id0,
                  id1=self.console.id1, backup=backup["id"], phase="prepared", sources=sources,
                  completed=[], files={}, dirty=dirty, state=st)
