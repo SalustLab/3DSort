@@ -123,7 +123,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (238; real integration skipped without sandbox/keys; the real-SD guard
+# tests (229; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -630,8 +630,9 @@ SD + a Playwright step if it has a UI gesture.
 
 ## 10. Current state and roadmap
 
-**Shipped: v1.2.0** (badges + exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-238 tests. Version lives in `VERSION` in ui/app.js (single source). README
+**Shipped: v1.2.1** (region-changed console support, 2026-09-21; v1.2.0 badges +
+exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
+229 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 
@@ -643,7 +644,10 @@ aborting correctly when the HOME booted between write and inject, restore, and
 the multi-id0 card flow (§5.1). macOS (arm64, external contributor): the
 v1.1.0 release `.app` (Actions build) validated on macOS Tahoe 26.6.2 against
 a real New 2DS XL — read/import AND the write/inject cycle — which also
-covers the macOS clean-machine smoke.
+covers the macOS clean-machine smoke. Region-changed console (external
+contributor, JPN→USA via CTRTransfer, §5.8): candidate ranking, the
+`pick_region` picker, the multi-save dump script, SD writes, AND the full
+launcher write → inject → boot cycle. CHN/KOR/TWN stay untested.
 The Windows exe was tested end to end (selftest, icons, date sort, native
 window, read-only autodetect of the real SD).
 

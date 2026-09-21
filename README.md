@@ -203,12 +203,14 @@ artwork and the catalog stay untouched.
 
 ## Status
 
-Stable for daily use, still labeled beta. 205 tests, including round trips
+Stable for daily use, still labeled beta. 229 tests, including round trips
 against a copy of a real card. The full cycle (write, NAND inject, restore) has
 been validated end to end on two USA New 3DS consoles, and the badge features
 on one of them. On macOS, the v1.1.0 app was validated by a community
 contributor on Tahoe 26.6.2 against a real New 2DS XL, including the write and
-inject cycle. The app never writes without an automatic backup and an explicit
+inject cycle. Support for region-changed (CTRTransfer) consoles was validated by
+another contributor on a JPN-to-USA console, write and inject cycle included.
+The app never writes without an automatic backup and an explicit
 confirmation.
 
 ## License
@@ -231,3 +233,6 @@ carries the same license.
 - [@appleforever11](https://github.com/appleforever11) contributed the
   macOS (Apple Silicon) support and validated the v1.1.0 release app on a
   real New 2DS XL from a Mac, including the write/inject cycle
+- [@ratatabananana-bit](https://github.com/ratatabananana-bit) diagnosed and
+  fixed HOME menu selection on region-changed (CTRTransfer) consoles, and
+  validated the write/inject cycle on one

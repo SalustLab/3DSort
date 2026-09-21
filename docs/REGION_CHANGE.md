@@ -88,7 +88,7 @@ path in the same run.
 
 ## Hardware validation
 
-On a real console region-changed from JPN to USA:
+Reported by the contributor on a real console region-changed from JPN to USA:
 
 - `find_consoles` ranked the live USA extdata first; the picker showed both
   candidates with correct counts and dates.
@@ -98,11 +98,14 @@ On a real console region-changed from JPN to USA:
 - Several SD-only layout writes through `write_sd`, each verified by
   re-extracting the extdata. The written layout survived a console boot and
   later CIA installs.
+- The full launcher (NAND) cycle: `write_sd` with `launcherDirty`, then
+  `3DSort_inject.gm9` in GodMode9 (all three sha gates passing), then a HOME
+  menu boot showing the written layout. This is the path the earlier revision
+  of this document listed as untested; the contributor had in fact run it and
+  only omitted it from the write-up.
 
-**Not yet validated on hardware:** a launcher (NAND) write followed by
-`3DSort_inject.gm9` on a region-changed console. Every change on that path is
-covered by the unit tests, and the three sha gates still guard the inject, but
-it has not been run on a console. CHN/KOR/TWN remain untested as before.
+CHN/KOR/TWN remain untested as before: no console in any of those regions has
+run 3DSort, region-changed or otherwise.
 
 ## Tests
 

@@ -537,7 +537,7 @@ function syncScreen() {
 // Button labels live here because instruction text refers to them by name. A
 // literal in prose plus a different literal on the button is how the wizard grew
 // a "press Verify below" under a button that said DONE.
-const VERSION = "v1.2.0";
+const VERSION = "v1.2.1";
 
 const BTN_IMPORT = "Import layout from SD";
 const BTN_VERIFY_INJECT = "Verify";
