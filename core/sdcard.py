@@ -54,13 +54,28 @@ class Console:
         return root / want
 
 
-def find_console(sd_root: Path, prefer_id0: str | None = None) -> Console:
-    """Locates id0/id1 and the HOME menu extdata on the SD. Clear error if not found.
+def extdata_mtime(path: Path) -> float:
+    """Newest mtime inside an extdata container. The HOME menu rewrites these
+    files every time it saves the layout, so this dates the last real use. A
+    region change leaves the old region's container frozen at the moment of the
+    transfer: it is the one signal that cannot invert, unlike icon counts (a
+    heavily used console transferred to a fresh region leaves the BIGGER
+    container behind)."""
+    try:
+        return max((p.stat().st_mtime for p in path.rglob("*") if p.is_file()),
+                   default=path.stat().st_mtime)
+    except OSError:
+        return 0.0
+
+
+def find_consoles(sd_root: Path, prefer_id0: str | None = None) -> list[Console]:
+    """Every HOME menu extdata on the card, best candidate first.
 
     A card can carry several id0 folders (used on more than one console, or kept
-    across a system format), and the leftovers look exactly like the live one.
-    prefer_id0 (derived from the movable.sed on the card) picks the right one;
-    without it, or when it names no folder here, the first match wins."""
+    across a system format) and, after a CTRTransfer region change, two regions
+    under a single id0. prefer_id0 (derived from the movable.sed on the card)
+    settles the first case and dominates the sort; the write time settles the
+    second."""
     sd_root = Path(sd_root)
     n3ds = sd_root / "Nintendo 3DS"
     if not n3ds.is_dir():
@@ -80,13 +95,19 @@ def find_console(sd_root: Path, prefer_id0: str | None = None) -> Console:
             present = {e.name.lower(): e for e in ext_root.iterdir() if e.is_dir()}
             for eid, region in HOME_EXTDATA_IDS.items():
                 if eid in present:
-                    c = Console(sd_root, id0.name, id1.name, region, "00000000" + eid)
-                    if prefer_id0 is not None and c.id0 == prefer_id0:
-                        return c
-                    found.append(c)
+                    found.append(Console(sd_root, id0.name, id1.name, region,
+                                         "00000000" + eid))
     if not found:
         raise FileNotFoundError(f"HOME menu extdata not found in {n3ds}")
-    return found[0]
+    found.sort(key=lambda c: (c.id0 == prefer_id0, extdata_mtime(c.extdata_dir)),
+               reverse=True)
+    return found
+
+
+def find_console(sd_root: Path, prefer_id0: str | None = None) -> Console:
+    """Best candidate only. Callers that must handle a region-changed card use
+    find_consoles and decide between the candidates themselves."""
+    return find_consoles(sd_root, prefer_id0)[0]
 
 
 def default_sd_candidates(bases=None) -> list[Path]:

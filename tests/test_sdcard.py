@@ -160,6 +160,63 @@ def test_nand_save_ids_hardware_checked_values():
     assert NAND_SAVE_IDS["EUR"] == "00020098"
 
 
+# ---- region change: two HOME menu extdata under one id0 --------------------
+
+def add_extdata(sd, extdata_id, id0="a" * 32, id1="b" * 32, mtime=None):
+    """Adds a second HOME menu extdata beside an existing one, optionally dated."""
+    d = sd / "Nintendo 3DS" / id0 / id1 / "extdata" / "00000000" / extdata_id
+    d.mkdir(parents=True, exist_ok=True)
+    f = d / "00000001"
+    f.write_bytes(b"x")
+    if mtime is not None:
+        import os
+        os.utime(f, (mtime, mtime))
+        os.utime(d, (mtime, mtime))
+    return d
+
+
+def test_find_consoles_ranks_newest_extdata_first(tmp_path):
+    """After a CTRTransfer both regions sit under the SAME id0, so id0 cannot
+    tell them apart. The dead one stops being written at the transfer; the live
+    one is rewritten every time the HOME menu saves the layout."""
+    from core.sdcard import find_consoles
+    sd = make_sd(tmp_path, extdata_id="00000082")          # JPN, stale
+    add_extdata(sd, "00000082", mtime=1_000_000)
+    add_extdata(sd, "0000008f", mtime=2_000_000)           # USA, live
+    regions = [c.region for c in find_consoles(sd, prefer_id0="a" * 32)]
+    assert regions == ["USA", "JPN"]
+    assert find_console(sd, prefer_id0="a" * 32).region == "USA"
+
+
+def test_find_consoles_id0_beats_mtime(tmp_path):
+    """A card used on two consoles: the movable-derived id0 still decides, even
+    when the other console's extdata was written more recently."""
+    from core.sdcard import find_consoles
+    dead, live = "1" * 32, "4" * 32
+    make_sd(tmp_path, id0=dead)
+    add_extdata(tmp_path, "0000008f", id0=dead, mtime=9_000_000)
+    make_sd(tmp_path, id0=live)
+    add_extdata(tmp_path, "0000008f", id0=live, mtime=1_000_000)
+    assert find_consoles(tmp_path, prefer_id0=live)[0].id0 == live
+
+
+def test_find_consoles_single_region_unchanged(tmp_path):
+    from core.sdcard import find_consoles
+    cs = find_consoles(make_sd(tmp_path))
+    assert len(cs) == 1 and cs[0].region == "USA"
+
+
+def test_find_consoles_missing(tmp_path):
+    from core.sdcard import find_consoles
+    with pytest.raises(FileNotFoundError):
+        find_consoles(tmp_path)
+
+
+def test_extdata_mtime_of_missing_dir_is_zero(tmp_path):
+    from core.sdcard import extdata_mtime
+    assert extdata_mtime(tmp_path / "nope") == 0.0
+
+
 def test_build_nand_tree_layout(tmp_path):
     movable = tmp_path / "movable.sed"
     movable.write_bytes(bytes(0x110) + bytes(16) + bytes(0x20))
