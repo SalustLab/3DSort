@@ -8,8 +8,9 @@ Section 12 supersedes the older compaction and badge-deferral statements
 below; the console validation is in `docs/BADGES_TESTING.md`.
 
 **hotfix/issue-4-blank-window (2026-09-25, unreleased):** inline boot guard in
-`ui/index.html` for the MSHTML fallback and silent boot failures (§7). No
-version bump until the issue #4 reporter confirms; the Linux half is open.
+`ui/index.html` for the MSHTML fallback and silent boot failures (§7), and the
+guarded `localStorage` access that blanked the Linux (GTK) window (§7). No
+version bump until the issue #4 reporter confirms.
 
 ## 1. What the project is
 
@@ -563,8 +564,27 @@ are staged changes (entity keys, §6); the write generates an injection payload
   and parse (`test_boot_guard_*` in `tests/test_ui_boot.py`, `node --check`).
   Repro on any Windows box: `$env:PYWEBVIEW_GUI='mshtml'; python app.py --mock`
   (pywebview writes an HKCU `FEATURE_BROWSER_EMULATION` value for python.exe).
-  The Linux half of issue #4 (same bare topbar) is UNDIAGNOSED: waiting on the
-  reporter's distro, launch method and terminal output.
+- **THE GTK NO-STORAGE TRAP (issue #4, Linux half)**: pywebview's GTK backend
+  runs in private mode by default and sets `enable_html5_local_storage = False`
+  (`webview/platforms/gtk.py`), so the `localStorage` global does NOT EXIST —
+  not empty, absent. `app.js` read it at top level to build `P`, threw
+  `ReferenceError: Can't find variable: localStorage` and left the same bare
+  topbar (reporter: Zorin OS 18.1, release tar.gz; the terminal only printed
+  the harmless `canberra-gtk-module` message). WebView2/Cocoa keep session
+  storage, which is why Windows/macOS never hit it. All access goes through
+  the guarded `store` handle at the top of `app.js`; without storage, prefs
+  last for the session. Guarded by
+  `test_boot_survives_a_webview_without_localstorage`. Repro without Linux
+  hardware: WSL (WSLg) + `libwebkit2gtk-4.1-0 gir1.2-webkit2-4.1 python3-gi`,
+  run from source with `PYWEBVIEW_GUI=gtk`.
+- **The Linux bundle mixes libraries**: the tar.gz ships GTK/GLib from the
+  ubuntu-24.04 runner but NOT the WebKit2 typelib, so WebKit always comes from
+  the system. On a distro with a newer GLib (Debian 13) system WebKit's deps
+  need symbols the bundled GLib lacks (`g_variant_builder_init_static`) and
+  the app dies before any window. Same-base distros (Ubuntu 24.04, Zorin 18,
+  Mint 22) are fine. Open; the likely fix is excluding the system GTK/GLib
+  stack from `3DSort.linux.spec` (removing it from the bundle made Debian 13
+  boot).
 - `call(name, args[])` routes pywebview vs fetch automatically — **arguments
   always positional** to keep the two channels identical. `callRaw` returns the
   RAW result (includes `{error}`; js_api rejection turned into `{error}`);

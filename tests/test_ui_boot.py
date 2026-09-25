@@ -113,6 +113,15 @@ def test_boot_guard_surfaces_errors_before_the_first_render():
     assert "window.onerror" in code and "unhandledrejection" in code
 
 
+def test_boot_survives_a_webview_without_localstorage():
+    """pywebview's GTK backend runs in private mode by default and sets
+    enable_html5_local_storage = False, so the global does not exist at all:
+    reading it at app.js top level threw a ReferenceError and left the bare
+    topbar on Linux (issue #4). Every access goes through one guarded handle."""
+    assert not re.search(r"\blocalStorage\.", APP_JS), "use the guarded prefs store"
+    assert re.search(r"try \{[^}]*window\.localStorage", APP_JS)
+
+
 # ---- scroll position across re-renders -------------------------------------
 
 def test_render_restores_the_scroll_of_the_scrollable_panes():
