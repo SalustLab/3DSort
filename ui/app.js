@@ -2,14 +2,18 @@
 "use strict";
 
 let S = null; // state coming from the backend
+// pywebview's GTK backend (private mode, its default) removes web storage
+// entirely: touching the bare global threw and left a blank window on Linux
+// (issue #4). Without it prefs just last for the session.
+const store = (() => { try { return window.localStorage || null; } catch (e) { return null; } })();
 const P = Object.assign(
   { tab: "GRID", iconSize: "M", viewRows: 4, page: 1, showLabels: true,
     sortMode: "Manual", themeId: "cosmos" },
-  JSON.parse(localStorage.getItem("prefs") || "{}"),
+  JSON.parse((store && store.getItem("prefs")) || "{}"),
   { openFolder: null, selected: null, sortMenu: false, dragKey: null,
     driveMenu: false, drives: null, guidePage: 1 }
 );
-const savePrefs = () => localStorage.setItem("prefs", JSON.stringify({
+const savePrefs = () => store && store.setItem("prefs", JSON.stringify({
   tab: P.tab, iconSize: P.iconSize, viewRows: P.viewRows, page: P.page, showLabels: P.showLabels,
   sortMode: P.sortMode, themeId: P.themeId }));
 
