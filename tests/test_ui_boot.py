@@ -16,9 +16,13 @@ screenshot does that, see CLAUDE.md section 10), but they do pin the structural
 choices that stop the bug class from coming back.
 """
 import re
+import shutil
+import subprocess
 import threading
 import urllib.request
 from pathlib import Path
+
+import pytest
 
 from app import build_api, serve
 
@@ -60,6 +64,53 @@ def test_native_html_has_no_serve_flag():
     """The file on disk stays clean: the flag is added per response, so the
     native window (which loads the file directly) never sees it."""
     assert "SERVE_MODE" not in (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+
+
+# ---- boot guard (issue #4) ---------------------------------------------------
+# Without the WebView2 runtime pywebview silently falls back to MSHTML (IE11):
+# no CSS variables, no woff2, app.js is a SyntaxError, and the window shows a
+# bare topbar forever. The inline guard must be able to run where app.js cannot.
+
+INDEX_HTML = (ROOT / "ui" / "index.html").read_text(encoding="utf-8")
+
+
+def boot_guard():
+    m = re.search(r"<script>(.*?)</script>", INDEX_HTML, re.S)
+    assert m, "index.html needs an inline boot-guard <script>"
+    return m
+
+
+def test_boot_guard_runs_before_the_app_scripts():
+    assert boot_guard().start() < INDEX_HTML.index('<script src="layout.js">')
+
+
+def test_boot_guard_is_es5_so_ie_can_run_it():
+    code = re.sub(r"//[^\n]*|/\*.*?\*/", "", boot_guard().group(1), flags=re.S)
+    for token in ("=>", "`", r"\blet\b", r"\bconst\b", r"\basync\b", r"\bclass\b"):
+        assert not re.search(token, code), f"{token} breaks the guard under MSHTML"
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node not installed")
+def test_boot_guard_parses(tmp_path):
+    """A syntax error in the guard would silently bring back the bare topbar."""
+    js = tmp_path / "guard.js"
+    js.write_text(boot_guard().group(1), encoding="utf-8")
+    r = subprocess.run(["node", "--check", str(js)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
+
+
+def test_boot_guard_names_webview2_under_ie():
+    code = boot_guard().group(1)
+    assert "document.documentMode" in code          # only IE defines it
+    assert "WebView2" in code and "go.microsoft.com/fwlink" in code
+    assert "var(" not in code                       # IE ignores CSS variables
+    # a plain link would navigate THIS window; _blank goes to the default browser
+    assert 'target = "_blank"' in code
+
+
+def test_boot_guard_surfaces_errors_before_the_first_render():
+    code = boot_guard().group(1)
+    assert "window.onerror" in code and "unhandledrejection" in code
 
 
 # ---- scroll position across re-renders -------------------------------------

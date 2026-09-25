@@ -99,8 +99,9 @@ with two explicit choices: complete it or restore the pre-write backup.
 ## What you need
 
 - A 3DS with custom firmware (Luma3DS) and GodMode9
-- A PC with an SD card reader. On Windows also the WebView2 runtime, which
-  ships with Windows 10 and 11 by default
+- A PC with an SD card reader. On Windows also the
+  [WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703): Windows 11
+  ships with it, Windows 10 may not. Without it the app opens a screen saying so
 - The console's `boot9.bin` and `movable.sed`. You do not copy these by hand:
   the app writes a `3DSort_dump` script to the card and that script dumps them
   for you, along with the HOME menu save
@@ -179,7 +180,9 @@ libwebkit2gtk-4.1-0`). From source: `pip install pywebview[gtk]` (or `[qt]`),
 the distro's GTK/WebKit and `python3-tk` packages, and a save3ds binary built
 once with `bash tools/build_save3ds_macos.sh` (cross-platform despite the
 name). Cards are looked up under `/media/<user>`, `/run/media/<user>`, `/mnt`
-and `/Volumes`; any other mount point can be picked in Settings.
+and `/Volumes`; any other mount point can be picked in Settings. If the window
+stays empty, start `./3DSort` from a terminal and include what it prints when
+you open an issue.
 
 ## How it works
 
