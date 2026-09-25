@@ -31,6 +31,29 @@ title proves nothing.
 To validate the actual release artifact, download the tar.gz from the release
 page, extract it outside the repository, and repeat `--selftest` and `--mock`.
 
+## If the window stays empty
+
+Launch from a terminal so pywebview and WebKitGTK errors are visible:
+
+```sh
+./3DSort --mock
+```
+
+The window itself reports a failed start (issue #4 showed only the top bar
+before this existed):
+
+- **"3DSort could not start"**: a JavaScript error during boot. The text on
+  screen names it; attach it together with the terminal output.
+- **"Still waiting for 3DSort"**: the UI loaded but the backend never answered
+  within 20 seconds (the pywebview bridge never came up, or a backend call is
+  stuck). The terminal output is what tells these apart.
+- **Nothing painted at all, not even the top bar**: try
+  `WEBKIT_DISABLE_DMABUF_RENDERER=1 ./3DSort --mock`, a known WebKitGTK
+  rendering issue on some GPU drivers and Wayland sessions.
+
+Report the distro and version, the release tar.gz or from source, and the
+terminal output.
+
 ## Read test with a console card
 
 1. Insert the card and confirm the mount under `/media/<user>` or
