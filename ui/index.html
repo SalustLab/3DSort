@@ -102,6 +102,57 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 <div class="screen" id="screen"></div>
 <div id="modal"></div>
 <div id="toast"></div>
+<script>
+// Boot guard. ES5 on purpose: it must run where app.js cannot even parse.
+// Without the WebView2 runtime pywebview silently falls back to MSHTML (IE11),
+// and any error before the first render used to leave this bare topbar on
+// screen with nothing saying why (issue #4, CLAUDE.md section 7). Messages go
+// INTO #screen, so a render that lands after all simply replaces them.
+(function () {
+  var screen = document.getElementById("screen");
+  function show(id, title, text) {
+    screen.innerHTML = "<div id='" + id + "' style='position:fixed;top:0;left:0;right:0;bottom:0;z-index:100;" +
+      "background:#fdf5e8;color:#4a3f35;font:15px/1.6 Segoe UI,sans-serif;padding:48px;overflow:auto'>" +
+      "<h2 style='color:#d31e40;margin:0 0 14px'></h2><p style='white-space:pre-wrap;margin:0'></p></div>";
+    var d = document.getElementById(id);
+    d.getElementsByTagName("h2")[0].appendChild(document.createTextNode(title));
+    // URLs become target=_blank links: every pywebview backend (MSHTML via
+    // NewWindow3) hands those to the default browser instead of this window.
+    var p = d.getElementsByTagName("p")[0], parts = text.split(/(https:\/\/\S+)/), i, a;
+    for (i = 0; i < parts.length; i++) {
+      if (i % 2) {
+        a = document.createElement("a");
+        a.href = parts[i]; a.target = "_blank"; a.style.color = "#d31e40";
+        a.appendChild(document.createTextNode(parts[i])); p.appendChild(a);
+      } else p.appendChild(document.createTextNode(parts[i]));
+    }
+  }
+  var ISSUES = "https://github.com/SalustLab/3DSort/issues";
+  var REPORT = "\n\nPlease open an issue at " + ISSUES + " with this text. " +
+    "Starting 3DSort from a terminal prints more detail.";
+  if (document.documentMode) {   // only Internet Explorer defines it
+    show("bootError", "3DSort needs the Microsoft Edge WebView2 Runtime",
+      "Windows opened 3DSort with the old Internet Explorer engine because the WebView2 Runtime " +
+      "was not found, and 3DSort cannot run on it.\n\nInstall the runtime from\n" +
+      "https://go.microsoft.com/fwlink/p/?LinkId=2124703\nthen close and reopen 3DSort.\n\n" +
+      "WebView2 also needs .NET Framework 4.6.2 or newer, which every updated Windows 10 and 11 has.");
+    return;
+  }
+  function pending() { return !screen.firstChild || document.getElementById("bootWait"); }
+  function fail(text) {
+    if (pending()) show("bootError", "3DSort could not start", "The app hit an error while starting:\n\n" + text + REPORT);
+  }
+  window.onerror = function (msg, src, line) { fail(msg + (src ? "\n" + src + ":" + line : "")); };
+  window.addEventListener("unhandledrejection", function (e) {
+    var r = e.reason; fail(String((r && (r.stack || r.message)) || r));
+  });
+  setTimeout(function () {
+    if (!screen.firstChild) show("bootWait", "Still waiting for 3DSort",
+      "The window is open but the app has not answered for 20 seconds. If nothing changes, close 3DSort, " +
+      "start it from a terminal and attach what it prints to a GitHub issue:\n" + ISSUES);
+  }, 20000);
+})();
+</script>
 <link rel="stylesheet" href="layout.css">
 <script src="layout.js"></script>
 <script src="app.js"></script>

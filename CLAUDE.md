@@ -123,7 +123,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (229; real integration skipped without sandbox/keys; the real-SD guard
+# tests (243; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -521,6 +521,28 @@ are staged changes (entity keys, §6); the write generates an injection payload
   `pywebviewready`. Guarded by `tests/test_ui_boot.py`; `--serve` alone NEVER
   catches this (there `/api/` exists). Corollary: every exe smoke must
   SCREENSHOT the window — a live process with a title proves nothing.
+- **THE MSHTML FALLBACK TRAP (issue #4, 2026-09-25)**: when
+  `webview/platforms/winforms.py::_is_chromium()` finds no WebView2 runtime in
+  the registry (or .NET < 4.6.2), pywebview SILENTLY opens the window with
+  MSHTML (IE11), only a logger warning the windowed exe never shows. IE11
+  fingerprint: every `var(--…)` dropped (white background, black wordmark, WRITE
+  button white-on-white with only its pink box-shadow), woff2 ignored (serif
+  `.dot`), no grid, and `app.js` is a SyntaxError, so the bare topbar stays
+  forever. WebView2 is preinstalled on Windows 11 only; Windows 10 can lack it.
+  The fix is the inline ES5 **boot guard** in `index.html`, placed BEFORE
+  `layout.js`/`app.js`: under IE (`document.documentMode`) it shows a WebView2
+  install screen; any `onerror`/`unhandledrejection` before the first render
+  shows the error text; `#screen` still empty after 20 s shows a "Still
+  waiting" notice. Messages live INSIDE `#screen`, so a late render replaces
+  them; after the first render the guard stays out of the way (toasts as
+  before). URLs are `target=_blank` links: every backend (MSHTML via
+  `NewWindow3`, WebView2/GTK via `OPEN_EXTERNAL_LINKS_IN_BROWSER`) hands them to
+  `webbrowser.open`, never navigating the app window. The guard must stay ES5
+  and parse (`test_boot_guard_*` in `tests/test_ui_boot.py`, `node --check`).
+  Repro on any Windows box: `$env:PYWEBVIEW_GUI='mshtml'; python app.py --mock`
+  (pywebview writes an HKCU `FEATURE_BROWSER_EMULATION` value for python.exe).
+  The Linux half of issue #4 (same bare topbar) is UNDIAGNOSED: waiting on the
+  reporter's distro, launch method and terminal output.
 - `call(name, args[])` routes pywebview vs fetch automatically — **arguments
   always positional** to keep the two channels identical. `callRaw` returns the
   RAW result (includes `{error}`; js_api rejection turned into `{error}`);
@@ -632,7 +654,7 @@ SD + a Playwright step if it has a UI gesture.
 
 **Shipped: v1.2.1** (region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-229 tests. Version lives in `VERSION` in ui/app.js (single source). README
+243 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 
@@ -661,7 +683,8 @@ chain: it receives console keys and sits on the non-Windows lookup path); the
 rebuild (`pyinstaller 3DSort.spec`) before asking for a hardware test.
 
 **Remaining for distribution**: Windows smoke on a clean machine WITHOUT
-Python (mainly with WebView2 absent); Linux tar.gz validation on real hardware
+Python (WebView2 absent now shows the install screen, §7 MSHTML trap, checked
+with forced MSHTML only); Linux tar.gz validation on real hardware
 (release path added 2026-08-20 — `3DSort.linux.spec` + `linux-release.yml`,
 checklist in `docs/LINUX_TESTING.md`).
 
