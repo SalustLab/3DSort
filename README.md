@@ -141,6 +141,18 @@ change it later from the SYNC tab.
 **Only the layout you pick is ever written to.** The one from before the region
 change is left untouched, byte for byte, so it stays available as a fallback.
 
+### If the window stays empty
+
+The window says why it cannot start instead of sitting on a bare top bar:
+
+- **Windows, "3DSort needs the Microsoft Edge WebView2 Runtime"**: Windows opened
+  the app with the old Internet Explorer engine. Install the runtime from the
+  link on that screen (it opens in your browser), then reopen 3DSort.
+- **"3DSort could not start"** or **"Still waiting for 3DSort"**:
+  [open an issue](https://github.com/SalustLab/3DSort/issues) with the text on
+  screen. On Linux, also start `./3DSort` from a terminal and include what it
+  prints ([details](docs/LINUX_TESTING.md#if-the-window-stays-empty)).
+
 ## Running from source
 
 ```
@@ -206,7 +218,7 @@ artwork and the catalog stay untouched.
 
 ## Status
 
-Stable for daily use, still labeled beta. 229 tests, including round trips
+Stable for daily use, still labeled beta. 243 tests, including round trips
 against a copy of a real card. The full cycle (write, NAND inject, restore) has
 been validated end to end on two USA New 3DS consoles, and the badge features
 on one of them. On macOS, the v1.1.0 app was validated by a community
