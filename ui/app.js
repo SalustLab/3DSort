@@ -69,6 +69,9 @@ const homeSeq = () => containerSequence(-1);
 const COLS = [3, 3, 5, 7, 9, 10];
 // Folders are always blue, like on the real 3DS (no color picking there).
 const FOLDER_BLUE = "#3b4cca";
+// WebKitGTK (Linux) cancels a drag with an empty dataTransfer (issue #4). Our
+// own type, so a tile dropped on a text field never pastes its key.
+const DRAG_MIME = "application/x-3dsort";
 const dark = h => {
   const n = parseInt(h.slice(1), 16), f = .62;
   return "#" + ((1 << 24) | (Math.round((n >> 16) * f) << 16) | (Math.round(((n >> 8) & 255) * f) << 8) | Math.round((n & 255) * f)).toString(16).slice(1);
@@ -868,6 +871,7 @@ function bind() {
   document.querySelectorAll(".item[data-ekey]").forEach(el => {
     el.ondragstart = e => {
       P.dragKey = el.dataset.ekey;
+      e.dataTransfer.setData(DRAG_MIME, P.dragKey);
       e.dataTransfer.effectAllowed = "move";
       setTimeout(() => el.classList.add("dragging")); // after the browser captures the drag ghost
     };

@@ -157,6 +157,18 @@ def test_drag_near_grid_edge_scrolls_via_raf_loop():
     assert over.index("edgeY = e.clientY") < over.index('closest(".item")')
 
 
+def test_every_dragstart_puts_data_on_the_drag():
+    """WebKitGTK (the Linux window) cancels a drag whose dataTransfer is empty:
+    dragstart fires, then no dragover or drop ever does, so drag and drop did
+    nothing at all (issue #4). Chromium/WebView2 starts the drag anyway. The
+    type is our own, so dropping a tile on a text field never pastes its key."""
+    layout_js = (ROOT / "ui" / "layout.js").read_text(encoding="utf-8")
+    handlers = re.findall(r"ondragstart = e => \{(.*?)\n?\s*\};", APP_JS + layout_js, re.S)
+    assert len(handlers) == 2, "one per draggable kind: grid tiles, collection badges"
+    for h in handlers:
+        assert "setData(DRAG_MIME" in h
+
+
 # ---- setup screens: doing vs reading ---------------------------------------
 
 def test_wizard_and_guide_are_separate_functions():
