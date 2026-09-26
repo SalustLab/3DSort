@@ -8,8 +8,9 @@ Section 12 supersedes the older compaction and badge-deferral statements
 below; the console validation is in `docs/BADGES_TESTING.md`.
 
 **hotfix/issue-4-blank-window (2026-09-25, unreleased):** inline boot guard in
-`ui/index.html` for the MSHTML fallback and silent boot failures (§7), and the
-guarded `localStorage` access that blanked the Linux (GTK) window (§7). No
+`ui/index.html` for the MSHTML fallback and silent boot failures (§7), the
+guarded `localStorage` access that blanked the Linux (GTK) window (§7), and
+drag data on every `dragstart` so WebKitGTK does not cancel drags (§7). No
 version bump until the issue #4 reporter confirms.
 
 ## 1. What the project is
@@ -138,7 +139,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (243; real integration skipped without sandbox/keys; the real-SD guard
+# tests (245; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -577,6 +578,15 @@ are staged changes (entity keys, §6); the write generates an injection payload
   `test_boot_survives_a_webview_without_localstorage`. Repro without Linux
   hardware: WSL (WSLg) + `libwebkit2gtk-4.1-0 gir1.2-webkit2-4.1 python3-gi`,
   run from source with `PYWEBVIEW_GUI=gtk`.
+- **THE GTK EMPTY-DRAG TRAP (issue #4, after rc1)**: WebKitGTK cancels a drag
+  whose `dataTransfer` holds no data: `dragstart` fires, then no `dragover`
+  and no `drop`, only `dragend`, so drag and drop silently does nothing.
+  Chromium/WebView2 starts the drag anyway, which is why only Linux broke.
+  Every `ondragstart` calls `setData(DRAG_MIME, key)`; `DRAG_MIME` is our own
+  type (`application/x-3dsort`), never `text/plain`, which a text field would
+  paste on drop. Guarded by `test_every_dragstart_puts_data_on_the_drag`.
+  Repro: WSL Ubuntu 24.04 + Xvfb + xdotool driving the real GTK window (WSLg's
+  XTest moves the pointer but never delivers button presses; Xvfb does).
 - **The Linux bundle mixes libraries**: the tar.gz ships GTK/GLib from the
   ubuntu-24.04 runner but NOT the WebKit2 typelib, so WebKit always comes from
   the system. On a distro with a newer GLib (Debian 13) system WebKit's deps

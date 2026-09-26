@@ -262,7 +262,7 @@ function bindSpatial() {
   on('moreBadges', () => { B.limit += 40; render(); });
   document.querySelectorAll('[data-badge-id]').forEach(el => {
     el.onclick = () => { B.selected = B.selected === +el.dataset.badgeId ? null : +el.dataset.badgeId; render(); };
-    el.ondragstart = e => { P.dragKey = `collection:${el.dataset.badgeId}`; e.dataTransfer.effectAllowed = 'copy'; };
+    el.ondragstart = e => { P.dragKey = `collection:${el.dataset.badgeId}`; e.dataTransfer.setData(DRAG_MIME, P.dragKey); e.dataTransfer.effectAllowed = 'copy'; };
     el.ondragend = () => { P.dragKey = null; render(); };
   });
   document.querySelectorAll('[data-empty]').forEach(el => {
