@@ -707,7 +707,7 @@ SD + a Playwright step if it has a UI gesture.
 **Shipped: v1.2.2** (issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
 2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-243 tests. Version lives in `VERSION` in ui/app.js (single source). README
+245 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 
@@ -741,7 +741,7 @@ with forced MSHTML only); Linux tar.gz validation on real hardware
 (release path added 2026-08-20 — `3DSort.linux.spec` + `linux-release.yml`,
 checklist in `docs/LINUX_TESTING.md`).
 
-**v2**: RULES tab (rule engine), THEMES/badges.
+**v2**: RULES tab (rule engine), THEMES (badges shipped in v1.2, §12).
 
 **Conscious debts**: `spike.py` does not use core/ nor `SAVE3DS_NAME` (meant to
 be disposable; delete it when nobody consults the Phase 1 history anymore).
