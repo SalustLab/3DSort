@@ -47,7 +47,7 @@ tests and development.
 ### Repository map
 
 ```
-F:\Projects\3DSort\
+3DSort/
 ├── CLAUDE.md               ← this file
 ├── 3DSort.spec             ← PyInstaller onefile/windowed build
 ├── 3DSort.macos.spec       ← PyInstaller onedir .app bundle (Apple Silicon)
@@ -150,7 +150,7 @@ python -m pytest tests -q -k "boot_guard"                   # by name
 node tools/test_spatial_ui.cjs
 
 # UI in the browser with real sandbox data (default development mode)
-python app.py --serve --sd F:\Projects\3DSort\sandbox\sd    # → http://127.0.0.1:8347
+python app.py --serve --sd sandbox\sd    # → http://127.0.0.1:8347
 
 # UI with synthetic data (no SD/keys — works anywhere)
 python app.py --serve --mock
@@ -162,7 +162,7 @@ python app.py --serve --mock --no-launcher
 python app.py --serve --mock --mock-badges 8350
 
 # native window (pywebview/WebView2)
-python app.py --sd F:\Projects\3DSort\sandbox\sd
+python app.py --sd sandbox\sd
 
 # portable exe build + smoke of the embedded resources
 pyinstaller 3DSort.spec
