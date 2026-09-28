@@ -1,17 +1,17 @@
 # CLAUDE.md — 3DSort
 
 Static context for AI-assisted development. Read before any change.
-Last revised: 2026-09-25. Full change history: git log of this file.
+Last revised: 2026-09-28. Full change history: git log of this file.
 
 **v1.2.0 (2026-09-07):** exact positions and the badge collection shipped.
 Section 12 supersedes the older compaction and badge-deferral statements
 below; the console validation is in `docs/BADGES_TESTING.md`.
 
-**hotfix/issue-4-blank-window (2026-09-25, unreleased):** inline boot guard in
-`ui/index.html` for the MSHTML fallback and silent boot failures (§7), the
-guarded `localStorage` access that blanked the Linux (GTK) window (§7), and
-drag data on every `dragstart` so WebKitGTK does not cancel drags (§7). No
-version bump until the issue #4 reporter confirms.
+**v1.2.2 (2026-09-28):** issue #4 fixes, confirmed by the reporter on Linux
+and Windows: inline boot guard in `ui/index.html` for the MSHTML fallback and
+silent boot failures (§7), guarded `localStorage` access that blanked the Linux
+(GTK) window (§7), and drag data on every `dragstart` so WebKitGTK does not
+cancel drags (§7).
 
 ## 1. What the project is
 
@@ -704,7 +704,8 @@ SD + a Playwright step if it has a UI gesture.
 
 ## 10. Current state and roadmap
 
-**Shipped: v1.2.1** (region-changed console support, 2026-09-21; v1.2.0 badges +
+**Shipped: v1.2.2** (issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
+2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
 243 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
