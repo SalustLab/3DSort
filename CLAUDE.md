@@ -139,7 +139,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (245; real integration skipped without sandbox/keys; the real-SD guard
+# tests (249; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -227,7 +227,11 @@ reuse old backups as key sources.
 
 ### 5.4 SaveData.dat (format v4 — source: 3dbrew /wiki/Home_Menu)
 
-Exact size `0x2DA0`. Offsets implemented in `core/savedata.py`:
+Size `0x2DA0`, or `0x2CB0` (user report 2026-09-29: version 4, every known
+array at the same offset, only the 0x13B8+ tail is 0xF0 shorter; HOME build
+unknown; read verified on the user's file, write not yet hardware-validated —
+`graft_tail` adopts the card's current size). Any other size is rejected.
+Offsets implemented in `core/savedata.py`:
 
 | Offset | Type | Content |
 |--------|------|---------|
@@ -707,7 +711,7 @@ SD + a Playwright step if it has a UI gesture.
 **Shipped: v1.2.2** (issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
 2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-245 tests. Version lives in `VERSION` in ui/app.js (single source). README
+249 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 

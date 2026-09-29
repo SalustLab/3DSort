@@ -6,9 +6,9 @@ from core.savedata import (SaveData, SIZE, OFF_TID, OFF_STATUS, OFF_POS,
                            OFF_FOLDER, OFF_FOLDER_NUM)
 
 
-def build_fixture(entries, version=4):
+def build_fixture(entries, version=4, size=SIZE):
     """entries: list of (slot, tid, pos, folder). Unknown regions filled with 0xA5."""
-    buf = bytearray(b"\xa5" * SIZE)
+    buf = bytearray(b"\xa5" * size)
     buf[0] = version
     for i in range(360):
         struct.pack_into("<Q", buf, OFF_TID + i * 8, 0)
@@ -159,3 +159,27 @@ def test_rejects_bad_size_and_version():
         SaveData(b"\x00" * 10)
     with pytest.raises(ValueError):
         SaveData(build_fixture(ENTRIES, version=9))
+
+
+def test_short_variant_0x2cb0_parses_and_roundtrips():
+    # user report 2026-09-29: a real v4 SaveData.dat of 0x2CB0 bytes (tail 0xF0 shorter)
+    raw = build_fixture(ENTRIES, size=0x2CB0)
+    sd = SaveData(raw)
+    assert [(e.slot, e.tid, e.pos, e.folder) for e in sd.entries] == ENTRIES
+    assert sd.serialize() == raw
+
+
+@pytest.mark.parametrize("mine,card", [(0x2CB0, SIZE), (SIZE, 0x2CB0)])
+def test_graft_tail_takes_the_card_size(mine, card):
+    # the write grafts the CURRENT card version: its format wins, arrays stay ours
+    raw = build_fixture(ENTRIES, size=mine)
+    sd = SaveData(raw)
+    sd.graft_tail(build_fixture([], size=card))
+    out = sd.serialize()
+    assert len(out) == card
+    assert out[:0x13B8] == raw[:0x13B8]
+
+
+def test_rejects_unknown_size():
+    with pytest.raises(ValueError):
+        SaveData(build_fixture(ENTRIES, size=0x2CB1))
