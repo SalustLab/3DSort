@@ -8,6 +8,7 @@ import struct
 from dataclasses import dataclass
 
 SIZE = 0x2DA0
+SIZES = (SIZE, 0x2CB0)  # 0x2CB0: same v4 arrays, tail 0xF0 shorter (user report 2026-09-29)
 OFF_TID = 0x8       # u64[360]
 OFF_STATUS = 0xB48  # s8[360], 1 = active icon
 OFF_POS = 0xCB0     # s16[360], linear position on the grid
@@ -28,8 +29,8 @@ class Entry:
 
 class SaveData:
     def __init__(self, raw: bytes):
-        if len(raw) != SIZE:
-            raise ValueError(f"SaveData.dat: expected {SIZE:#x} bytes, got {len(raw):#x}")
+        if len(raw) not in SIZES:
+            raise ValueError(f"SaveData.dat: expected 0x2da0 or 0x2cb0 bytes, got {len(raw):#x}")
         if raw[0] != 4:
             raise ValueError(f"SaveData.dat: version {raw[0]} not supported (expected 4)")
         self._buf = bytearray(raw)
@@ -61,8 +62,8 @@ class SaveData:
     def graft_tail(self, other: bytes):
         """Copies the themes/configs region (0x13B8+) from another SaveData: the write
         uses the CURRENT card version so a theme changed on the console never regresses."""
-        if len(other) != SIZE:
-            raise ValueError(f"graft_tail: expected {SIZE:#x} bytes, got {len(other):#x}")
+        if len(other) not in SIZES:
+            raise ValueError(f"graft_tail: expected 0x2da0 or 0x2cb0 bytes, got {len(other):#x}")
         self._buf[OFF_THEMES:] = other[OFF_THEMES:]
 
     def apply_order(self, slots_in_order: list[int], reserved: dict | None = None):
