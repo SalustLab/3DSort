@@ -13,10 +13,10 @@ silent boot failures (§7), guarded `localStorage` access that blanked the Linux
 (GTK) window (§7), and drag data on every `dragstart` so WebKitGTK does not
 cancel drags (§7).
 
-**Unreleased (branch `fix/savedata-0x2cb0`, 2026-09-30):** the `0x2CB0`
-SaveData.dat variant is accepted (§5.4), and presets sort NAND DSiWare / NDS
-forwarders with the games, dated by the gamecode in the tid (§6). Test build
-`3DSort-v1.2.3-test2-win64.zip`; `VERSION` is still v1.2.2.
+**v1.2.3 (2026-09-30):** the `0x2CB0` SaveData.dat variant is accepted
+(§5.4), and presets sort NAND DSiWare / NDS forwarders with the games, dated
+by the gamecode in the tid (§6). Confirmed on hardware by the reporter (a
+Reddit user, no GitHub issue) with the test2 build.
 
 ## 1. What the project is
 
@@ -234,7 +234,8 @@ reuse old backups as key sources.
 
 Size `0x2DA0`, or `0x2CB0` (user report 2026-09-29: version 4, every known
 array at the same offset, only the 0x13B8+ tail is 0xF0 shorter; HOME build
-unknown; read verified on the user's file, write not yet hardware-validated —
+unknown; read AND write hardware-validated by the reporter with the test2
+build, 2026-09-30 —
 `graft_tail` adopts the card's current size). Any other size is rejected.
 Offsets implemented in `core/savedata.py`:
 
@@ -716,7 +717,8 @@ SD + a Playwright step if it has a UI gesture.
 
 ## 10. Current state and roadmap
 
-**Shipped: v1.2.2** (issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
+**Shipped: v1.2.3** (0x2CB0 SaveData.dat, DSiWare sorted with the games,
+2026-09-30; v1.2.2 issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
 2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
 251 tests. Version lives in `VERSION` in ui/app.js (single source). README
@@ -754,6 +756,10 @@ with forced MSHTML only); Linux tar.gz validation on real hardware
 checklist in `docs/LINUX_TESTING.md`).
 
 **v2**: RULES tab (rule engine), THEMES (badges shipped in v1.2, §12).
+First RULES use case (reporter, 2026-09-30): keep homebrew out of the A-Z
+presets (they filed it into a folder by hand). Homebrew shares the retail tid
+range (`00040000`), so rules must match on observable signals (no titledates
+entry, name or tid pattern), never a "homebrew" flag.
 
 **Conscious debts**: `spike.py` does not use core/ nor `SAVE3DS_NAME` (meant to
 be disposable; delete it when nobody consults the Phase 1 history anymore).
