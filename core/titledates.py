@@ -1,6 +1,7 @@
 """Release dates for 3DS titles, from the bundled offline table.
 
-core/titledates.json.gz maps tid (16 hex chars) -> "YYYY-MM-DD". Built once by
+core/titledates.json.gz maps tid (16 hex chars) -> "YYYY-MM-DD" for 3DS titles
+and gamecode (4 chars) -> "YYYY-MM-DD" for DS/DSiWare. Built once by
 tools/build_titledates.py (3dsdb tid->product code + GameTDB product code->date).
 Missing file or missing tid -> None; sorting then treats the title as undated.
 """
@@ -25,4 +26,8 @@ def _load() -> dict:
 
 def release_date(tid: int) -> str | None:
     """ISO date ("YYYY-MM-DD") for a title, or None if unknown."""
+    if tid >> 32 == 0x00048004:
+        # TWL tid low = gamecode ASCII: DSiWare, and NDS forwarders copy the ROM's
+        # (ndsForwarder builder.cpp readTWLTID; its "random TID" option is undatable)
+        return _load().get((tid & 0xFFFFFFFF).to_bytes(4, "big").decode("latin-1"))
     return _load().get(f"{tid:016x}")

@@ -27,6 +27,13 @@ def test_release_date_reads_bundled_gz(tmp_path, monkeypatch):
     assert titledates.release_date(0xDEAD) is None
 
 
+def test_dsiware_is_dated_by_the_gamecode_in_its_tid(monkeypatch):
+    """TWL tid low = gamecode ASCII (DSiWare, and NDS forwarders copy the ROM's)."""
+    monkeypatch.setattr(titledates, "_table", {"ADME": "2005-12-05"})
+    assert titledates.release_date(0x0004800441444D45) == "2005-12-05"
+    assert titledates.release_date(0x0004000041444D45) is None   # a 3DS tid never uses the code
+
+
 def test_missing_table_means_undated(tmp_path, monkeypatch):
     monkeypatch.setattr(titledates, "TABLE_PATH", tmp_path / "missing.gz")
     assert titledates.release_date(MOCK_TID) is None

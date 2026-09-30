@@ -523,6 +523,13 @@ def test_presets_sort_nand_dsiware_among_the_games(monkeypatch):
     sortable = names[4:]
     assert sortable == sorted(sortable, key=str.lower) and "Castlevania" in sortable
     assert state["launcherDirty"] is True
+    # dated by its gamecode ("CASA"), it leads the release-date order
+    from core import titledates
+    monkeypatch.setattr(titledates, "_table", {"CASA": "2000-01-01", f"{0x0004000000030000:016x}": "2011-12-04"})
+    state = api.sort_preset("date_asc", 4)
+    home = sorted((i["pos"], i["name"]) for i in state["items"] + state["system"]
+                  if i["folder"] == -1 and not i.get("hole"))
+    assert [n for _, n in home][4:6] == ["Castlevania", "Mario Kart 7"]
 
 
 def test_newly_installed_badges_force_reimport(monkeypatch):
