@@ -480,7 +480,9 @@ are staged changes (entity keys, §6); the write generates an injection payload
   (`az`, `za`, `date_asc`, `date_desc`; dates from `core/titledates.py`, offline
   tid→"YYYY-MM-DD" table; dateless titles go LAST in both directions; missing
   table = stable no-op; then every container is laid out by type: system apps,
-  Game Card, folders, badges by name, then the sorted games, no gaps, §12),
+  Game Card, folders, badges by name, then the sorted games, no gaps, §12;
+  NAND DSiWare — tid high `00048004`, NDS forwarders — sorts WITH the games
+  when the launcher is writable, user report 2026-09-30),
   `compact_games(folder=-1, rows=4)`, `undo/redo/reset_staging`. Launcher mutations require
   `launcherWritable`. Every `write_sd` zeroes the status array (unwrap always
   on, §5.4) and grafts the theme region 0x13B8+ (§5.4).
