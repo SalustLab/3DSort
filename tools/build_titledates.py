@@ -1,15 +1,18 @@
-"""Builds core/titledates.json.gz: 3DS title ID -> release date ("YYYY-MM-DD").
+"""Builds core/titledates.json.gz: 3DS title ID -> release date ("YYYY-MM-DD"),
+plus DS/DSiWare 4-letter game code -> release date.
 
 Sources (fetched live; run with internet access):
   - hax0kartik/3dsdb region JSONs: title ID -> product code (e.g. CTR-N-KGKE)
   - GameTDB 3dstdb.xml: 4-letter game code -> <date year month day>
+  - GameTDB dstdb.xml: DS/DSiWare game code -> date (the app reads the code from
+    the low half of a TWL tid, which is how DSiWare and NDS forwarders are keyed)
 
 Merge key: the last 4 chars of the product code == GameTDB <id>.
-Only base applications (tid high 00040000) are kept; DSiWare/system apps have
-no entry and sort as undated in the app. Rerun any time to refresh the table.
+Only base applications (tid high 00040000) are kept on the 3DS side; system
+apps have no entry and sort as undated in the app. Rerun any time to refresh.
 
 Usage: python tools/build_titledates.py
-Last generated: 2026-08-15.
+Last generated: 2026-09-30.
 """
 import gzip
 import io
@@ -22,6 +25,7 @@ from pathlib import Path
 DB_REGIONS = ("GB", "JP", "KR", "TW", "US")
 DB_URL = "https://hax0kartik.github.io/3dsdb/jsons/list_{}.json"
 GAMETDB_URL = "https://www.gametdb.com/3dstdb.zip?LANG=EN"
+GAMETDB_DS_URL = "https://www.gametdb.com/dstdb.zip?LANG=EN"
 OUT = Path(__file__).resolve().parent.parent / "core" / "titledates.json.gz"
 UA = {"User-Agent": "3DSort-titledates-builder/1.0"}
 
@@ -31,9 +35,9 @@ def fetch(url: str) -> bytes:
         return r.read()
 
 
-def gametdb_dates() -> dict:
-    """4-letter game code -> ISO date, from GameTDB's 3dstdb.xml."""
-    raw = fetch(GAMETDB_URL)
+def gametdb_dates(url: str = GAMETDB_URL) -> dict:
+    """4-letter game code -> ISO date, from a GameTDB xml (3dstdb or dstdb)."""
+    raw = fetch(url)
     with zipfile.ZipFile(io.BytesIO(raw)) as z:
         name = next(n for n in z.namelist() if n.endswith(".xml"))
         root = ET.fromstring(z.read(name))
@@ -72,6 +76,9 @@ def main():
                 n += 1
         print(f"3dsdb {region}: {len(entries)} entries, {n} matched a date")
     print(f"Total: {len(table)} tids dated out of {total} applications")
+    ds = gametdb_dates(GAMETDB_DS_URL)
+    table.update(ds)
+    print(f"GameTDB DS/DSiWare: {len(ds)} game codes with a date")
     payload = json.dumps(table, separators=(",", ":"), sort_keys=True)
     with gzip.open(OUT, "wt", encoding="utf-8", newline="\n") as f:
         f.write(payload)
