@@ -10,6 +10,8 @@ from core import badges
 from core.badges import SHAPES
 from core import titledates
 
+DSIWARE_TID_HIGH = 0x00048004  # TWL titles on the NAND: DSiWare, NDS forwarders (§5.8)
+
 
 class LayoutApi:
     def _load_badges(self):
@@ -253,27 +255,33 @@ class LayoutApi:
         if preset not in ("az", "za", "date_asc", "date_desc"):
             raise ValueError(f"Unknown sort preset: {preset}")
         st = copy.deepcopy(self.staging.state)
-        for folder in set(st["folders"].values()):
+        tid = lambda k: (st["tids"] if k[0] == "g" else st["nand_tids"])[k[1]]
+        for folder in set(st["folders"].values()) | set(st["nand_folder"].values()):
             slots = sorted((s for s in st["game_pos"] if st["folders"][s] == folder), key=st["game_pos"].get)
             positions = [st["game_pos"][s] for s in slots]
+            # DSiWare on the NAND (NDS forwarders, user report 2026-09-30) is a
+            # game to the user: sorted with them, only when the launcher can move it.
+            dsiware = [("n", s) for s in st["nand_pos"] if self._launcher_writable and
+                       st["nand_folder"][s] == folder and st["nand_tids"][s] >> 32 == DSIWARE_TID_HIGH]
+            keys = [("g", s) for s in slots] + dsiware
             if preset in ("az", "za"):
-                ordered = sorted(slots, key=lambda s: self._names.get(st["tids"][s], "").lower(), reverse=preset == "za")
+                ordered = sorted(keys, key=lambda k: self._names.get(tid(k), "").lower(), reverse=preset == "za")
             else:
-                dates = {s: titledates.release_date(st["tids"][s]) for s in slots}
-                ordered = sorted((s for s in slots if dates[s]), key=dates.get, reverse=preset == "date_desc")
-                ordered += [s for s in slots if not dates[s]]
-            st["game_pos"].update(zip(ordered, positions))
+                dates = {k: titledates.release_date(tid(k)) for k in keys}
+                ordered = sorted((k for k in keys if dates[k]), key=dates.get, reverse=preset == "date_desc")
+                ordered += [k for k in keys if not dates[k]]
+            st["game_pos"].update(zip((s for t, s in ordered if t == "g"), positions))
             if self._launcher_raw is not None:
                 # Layout by type (owner decision): system apps, Game Card, folders,
                 # badges by name, then the sorted games. Folders and badges up front
                 # are what a user who organises with them wants to reach first.
                 ents = layout.entities(st)
                 rank = {"n": 0, "cart": 1, "f": 2}
-                system = sorted((k for k, (f, _) in ents.items() if f == folder and k[0] in rank),
-                                key=lambda k: (rank[k[0]], ents[k][1]))
+                system = sorted((k for k, (f, _) in ents.items() if f == folder and k[0] in rank
+                                 and k not in dsiware), key=lambda k: (rank[k[0]], ents[k][1]))
                 badges_ = sorted((k for k, (f, _) in ents.items() if f == folder and k[0] == "b"),
                                  key=lambda k: (self._label(st, k).lower(), ents[k][1]))
-                self._compact_container(st, folder, rows, system + badges_ + [("g", s) for s in ordered])
+                self._compact_container(st, folder, rows, system + badges_ + ordered)
         return self._commit(f"Sorted: {preset}", **st)
 
     def _compact_container(self, st, folder, rows, items=None):

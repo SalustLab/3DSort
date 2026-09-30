@@ -506,6 +506,25 @@ def test_presets_order_system_cart_folders_badges_then_games(badge_api):
     assert state["launcherDirty"] is True        # system items moved: inject expected
 
 
+def test_presets_sort_nand_dsiware_among_the_games(monkeypatch):
+    """User report 2026-09-30: NDS forwarders are DSiWare installed on the NAND
+    (tid high 00048004), so they live in Launcher.dat, not SaveData. A preset
+    sorts them with the games instead of pinning them in the system block."""
+    import app
+    nand = [n for n in app.MOCK_NAND if n[2] != 8] + [("Castlevania", 0x0004800443415341, 8, -1)]
+    monkeypatch.setattr(app, "MOCK_NAND", nand)
+    api = build_api(mock=True)
+    api.get_state()
+    state = api.sort_preset("az", 4)
+    home = sorted((i["pos"], i["name"]) for i in state["items"] + state["system"]
+                  if i["folder"] == -1 and not i.get("hole"))
+    names = [n for _, n in home]
+    assert names[:4] == ["System Settings", "Mii Maker", "Nintendo eShop", "Game Card"]
+    sortable = names[4:]
+    assert sortable == sorted(sortable, key=str.lower) and "Castlevania" in sortable
+    assert state["launcherDirty"] is True
+
+
 def test_newly_installed_badges_force_reimport(monkeypatch):
     api = build_api(mock=True)
     api.get_state()
