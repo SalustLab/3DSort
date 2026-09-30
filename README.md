@@ -66,6 +66,9 @@ byte for byte (details in [docs/BADGES_TESTING.md](docs/BADGES_TESTING.md)).
 - Swap any two tiles by dropping one onto the other: games, system apps,
   folder tiles, badges, even the Game Card slot
 - Move games, system apps and badges in and out of folders
+- Sort A to Z, Z to A or by release date. DSiWare and NDS forwarders installed
+  on the NAND are sorted together with the games, dated like the DS game they
+  launch
 - Create, rename, empty and delete folders; give them a badge as icon
 - Live preview that reproduces the console screen exactly, for every view
   setting from 1x60 to 6x10

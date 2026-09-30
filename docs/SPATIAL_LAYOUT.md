@@ -23,6 +23,9 @@ Shipped in v1.2.0 (2026-09-07) after the console validation recorded in
   used for block geometry. `sort_preset(preset, rows=4)` applies the same
   compaction with an explicit order per container: system apps, Game Card,
   folders (relative order kept), badges by name, then the games in preset order.
+  NAND DSiWare (tid high `00048004`, which includes NDS forwarders) counts as a
+  game there when the launcher is writable, and is dated by the gamecode in its
+  tid low (user report 2026-09-30).
 - `folder_create(name=None, decoration=None)`: the optional `decoration` is the
   catalog id of a single-piece badge, staged as the new folder's icon in the same
   change (undo removes both). Staged labels name the item and its 1-based cell.
