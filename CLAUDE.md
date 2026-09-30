@@ -1,7 +1,7 @@
 # CLAUDE.md — 3DSort
 
 Static context for AI-assisted development. Read before any change.
-Last revised: 2026-09-28. Full change history: git log of this file.
+Last revised: 2026-09-30. Full change history: git log of this file.
 
 **v1.2.0 (2026-09-07):** exact positions and the badge collection shipped.
 Section 12 supersedes the older compaction and badge-deferral statements
@@ -12,6 +12,11 @@ and Windows: inline boot guard in `ui/index.html` for the MSHTML fallback and
 silent boot failures (§7), guarded `localStorage` access that blanked the Linux
 (GTK) window (§7), and drag data on every `dragstart` so WebKitGTK does not
 cancel drags (§7).
+
+**Unreleased (branch `fix/savedata-0x2cb0`, 2026-09-30):** the `0x2CB0`
+SaveData.dat variant is accepted (§5.4), and presets sort NAND DSiWare / NDS
+forwarders with the games, dated by the gamecode in the tid (§6). Test build
+`3DSort-v1.2.3-test2-win64.zip`; `VERSION` is still v1.2.2.
 
 ## 1. What the project is
 
@@ -139,7 +144,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (249; real integration skipped without sandbox/keys; the real-SD guard
+# tests (251; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -714,7 +719,7 @@ SD + a Playwright step if it has a UI gesture.
 **Shipped: v1.2.2** (issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
 2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-249 tests. Version lives in `VERSION` in ui/app.js (single source). README
+251 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 
