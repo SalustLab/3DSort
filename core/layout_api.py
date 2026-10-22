@@ -201,10 +201,11 @@ class LayoutApi:
                 return self.get_state()
             if sources != {folder}:
                 raise ValueError("Drop onto the folder or an empty cell to move titles between grids.")
-            # Reorder only editable titles in their occupied slots. Pinned apps,
-            # folders, badges and unknown holes stay exactly where they were.
-            movable = [k for k, (f, _) in entities.items() if f == folder and
-                       (k[0] == "g" or (k[0] == "n" and self._launcher_writable))]
+            # Reorder only the selected kinds in their occupied slots: NAND apps
+            # join only when one is selected, so a games-only move never needs
+            # a GM9 inject. Pinned apps, folders, badges and holes stay put.
+            kinds = {k[0] for k in selected} | {"g"}
+            movable = [k for k, (f, _) in entities.items() if f == folder and k[0] in kinds]
             movable.sort(key=lambda k: entities[k][1])
             positions = [entities[k][1] for k in movable]
             ordered = [k for k in movable if k not in selected]

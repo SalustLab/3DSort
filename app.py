@@ -301,10 +301,11 @@ class Api(LayoutApi, WriteApi):
             sd3 = Path(self.sd_root) / "3DSort"
             if self._pending_inject_info():
                 # a write is published: the GENERATED container is the app's truth
+                # The marker lives in the workdir, not on the card: another card
+                # has no payload and must still open from its own dump.
                 payload = sd3 / "homemenu_save_new.bin"
-                if not payload.is_file():
-                    raise ValueError("Pending injection payload is missing. Restore the missing files before importing this layout.")
-                return payload
+                if payload.is_file():
+                    return payload
             if self.console is not None:
                 # the dump script leaves one file per save id present on the NAND
                 picked = sd3 / f"homemenu_save_{self._nand_save_id()}.bin"
@@ -757,7 +758,13 @@ class Api(LayoutApi, WriteApi):
             return None
         return json.loads(p.read_text(encoding="utf-8"))
 
-    def _check_inject_receipt(self) -> bool:
+    PAYLOAD_CHANGED_ERROR = ("Injection payload changed after writing. Keep the card "
+                             "files and backups; do not mark the injection as done.")
+
+    def _payload_intact(self, payload: Path, info: dict) -> bool:
+        return hashlib.sha256(payload.read_bytes()).hexdigest() == info["sha"]
+
+    def _check_inject_receipt(self, strict=False) -> bool:
         """The GM9 script receipt confirms the injection: promotes the generated
         container to current dump and clears the pending state."""
         info = self._pending_inject_info()
@@ -770,8 +777,10 @@ class Api(LayoutApi, WriteApi):
             return False
         if receipt.read_bytes() != bytes.fromhex(info["sha"]):
             return False
-        if hashlib.sha256(payload.read_bytes()).hexdigest() != info["sha"]:
-            raise ValueError("Injection payload changed after writing. Keep the card files and backups; do not mark the injection as done.")
+        if not self._payload_intact(payload, info):
+            if strict:  # Verify reports it; the import path stays open
+                raise ValueError(self.PAYLOAD_CHANGED_ERROR)
+            return False
         self._promote_payload(sd3)
         receipt.unlink(missing_ok=True)
         self._pending_path().unlink(missing_ok=True)
@@ -819,7 +828,7 @@ class Api(LayoutApi, WriteApi):
             return {"error": "Recover the interrupted write first."}
         if self._pending_inject_info() is None:
             return self.get_state()
-        if self._check_inject_receipt():
+        if self._check_inject_receipt(strict=True):
             return self.import_sd()
         return {"error": "No inject receipt found. Run the 3DSort_inject script "
                          "in GodMode9, then verify again."}
@@ -828,8 +837,12 @@ class Api(LayoutApi, WriteApi):
         """Manual override: the user vouches they injected without a receipt."""
         if self._recovery_info():
             return {"error": "Recover the interrupted write first."}
-        if self._pending_inject_info() is not None and self.sd_root is not None:
+        info = self._pending_inject_info()
+        if info is not None and self.sd_root is not None:
             sd3 = Path(self.sd_root) / "3DSort"
+            payload = sd3 / "homemenu_save_new.bin"
+            if payload.exists() and not self._payload_intact(payload, info):
+                return {"error": self.PAYLOAD_CHANGED_ERROR}
             self._promote_payload(sd3)
             (sd3 / "inject_done.sha").unlink(missing_ok=True)
         self._pending_path().unlink(missing_ok=True)

@@ -41,7 +41,7 @@ def test_insert_preserves_cells_other_entities_and_order(api, indices, target):
     games = home_games(api)
     selected = [games[i]['key'] for i in indices]
     before = layout.entities(api.staging.state)
-    movable = sorted((k for k in before if k[0] in ('g', 'n') and before[k][0] == -1), key=lambda k: before[k][1])
+    movable = sorted((k for k in before if k[0] == 'g' and before[k][0] == -1), key=lambda k: before[k][1])
     parsed = [api._key(k) for k in selected]
     expected = [k for k in movable if k not in parsed]
     index = expected.index(api._key(games[target]['key']))
@@ -74,6 +74,27 @@ def test_rejections_are_atomic(api, keys, folder, pos, before_key):
         api.move_games(keys, folder, pos, before_key)
     assert api.staging.state == before
     assert not api.staging.staged
+
+
+def test_games_only_insert_leaves_system_apps_and_launcher_alone(api):
+    """Reordering SD games must not drag NAND apps along (that would need a GM9 inject)."""
+    before = layout.entities(api.staging.state)
+    games = [i['key'] for i in home_games(api)]
+    result = api.move_games(games[:2], -1, before_key=games[-1])
+    after = layout.entities(api.staging.state)
+    assert {k: v for k, v in before.items() if k[0] != 'g'} == {k: v for k, v in after.items() if k[0] != 'g'}
+    assert not result['launcherDirty']
+
+
+def test_selected_system_app_joins_the_reorder(api):
+    before = layout.entities(api.staging.state)
+    games = [i['key'] for i in home_games(api)]
+    result = api.move_games(['n:0', games[0]], -1, before_key=games[-1])
+    after = layout.entities(api.staging.state)
+    assert after[('n', 0)] != before[('n', 0)]
+    assert after[('n', 0)][1] < after[api._key(games[0])][1] < after[api._key(games[-1])][1]
+    assert result['launcherDirty']
+    layout.validate(api.staging.state)
 
 
 def test_missing_launcher_allows_only_occupied_game_reorder():

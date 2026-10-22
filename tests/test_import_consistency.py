@@ -56,9 +56,10 @@ def test_pending_import_does_not_overwrite_anchor():
     regional.write_bytes(b'changed dump')
     assert api._find_container().name == 'homemenu_save_new.bin'
     assert (sd3 / 'homemenu_save.bin').read_bytes() == original
+    # The pending marker lives in the app workdir, not on the card: another
+    # card (no payload) must still open from its own dump.
     (sd3 / 'homemenu_save_new.bin').unlink()
-    with pytest.raises(ValueError, match='payload is missing'):
-        api._find_container()
+    assert api._find_container() == regional
 
 
 def test_missing_regional_sha_clears_canonical_anchor():
@@ -75,11 +76,18 @@ def test_payload_must_match_receipt_before_promotion():
     api.write_sd()
     payload = sd3 / 'homemenu_save_new.bin'
     (sd3 / 'inject_done.sha').write_bytes(hashlib.sha256(payload.read_bytes()).digest())
-    payload.write_bytes(b'corrupt')
+    good = payload.read_bytes()
+    payload.write_bytes(good[:-1] + bytes([good[-1] ^ 0xFF]))  # one flipped tail byte
     with pytest.raises(ValueError, match='payload changed'):
         api.verify_inject()
     assert regional.read_bytes() == original
     assert api._pending_path().exists()
+    # The import path must not lock the app out: the pending inject stays and
+    # SYNC can still reach Verify/Cancel. Mark as done refuses the bad payload.
+    assert 'error' not in api.import_sd()
+    assert api._pending_path().exists()
+    assert 'payload changed' in api.confirm_inject()['error']
+    assert regional.read_bytes() == original
 
 
 def test_previous_card_path_is_not_a_fallback(tmp_path):

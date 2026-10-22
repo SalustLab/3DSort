@@ -153,7 +153,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (271; real integration skipped without sandbox/keys; the real-SD guard
+# tests (273; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -422,10 +422,14 @@ are staged changes (entity keys, §6); the write generates an injection payload
   `pending_inject.json`) is a FRESH GM9 dump taken after the inject and is
   kept. `_promote_region_dump` refreshes the canonical `.sha` from the
   regional one even when the bytes are identical, and removes it when the
-  regional `.sha` is missing. A pending inject whose payload is gone raises
-  instead of falling back; `verify_inject` refuses a payload whose sha no
-  longer matches the marker. `_fallback_container` keeps only the
-  constructor's container as last resort, never a previous card's.
+  regional `.sha` is missing. While an inject is pending, `_find_container`
+  returns the payload WITHOUT promoting the regional dump (the gate 2 anchor
+  stays); without a payload it falls through, because `pending_inject.json`
+  lives in the workdir and another card must still open. A payload whose sha
+  no longer matches the marker is never promoted: `verify_inject` raises,
+  `confirm_inject` returns `{"error"}`, the import path just leaves the inject
+  pending (it must never lock the app out). `_fallback_container` keeps only
+  the constructor's container as last resort, never a previous card's.
 - **Keys without manual copying**: `3DSort_dump.gm9` is published on EVERY
   `import_sd` (kills the new user's chicken-and-egg) and dumps container +
   `movable.sed` + `boot9.bin` into `0:/3DSort/`. `Api._resolve_keys` looks in
@@ -515,8 +519,9 @@ are staged changes (entity keys, §6); the write generates an injection payload
   when the launcher is writable, user report 2026-09-30),
   `compact_games(folder=-1, rows=4)`, `move_games(keys, folder, pos=None,
   before_key=None)` (one grid's g/n selection as ONE staged change:
-  `before_key` = insert before that title, reordering only editable titles
-  inside their occupied cells; otherwise the next free cells from `pos` in
+  `before_key` = insert before that title, reordering inside their occupied
+  cells only games, plus NAND apps when one is SELECTED (a games-only move
+  never dirties the launcher, so it never needs a GM9 inject); otherwise the next free cells from `pos` in
   `folder`, needs `_spatial_ready`; any failure leaves staging untouched),
   `undo/redo/reset_staging`. Launcher mutations require
   `launcherWritable`. Every `write_sd` zeroes the status array (unwrap always
