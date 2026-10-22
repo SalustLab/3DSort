@@ -11,7 +11,7 @@
 [![Tests](https://img.shields.io/badge/tests-269%20passing-7ac70c?style=flat-square)](#tests)
 [![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.2.0-d31e40?style=flat-square)](#status)
+[![Version](https://img.shields.io/badge/version-v1.3.0-d31e40?style=flat-square)](#status)
 
 </div>
 
@@ -20,245 +20,146 @@
 > 3DS file formats were reverse engineered against real dumps, and every write
 > path was validated on real consoles before release.
 
-Organizing icons on the console itself is slow: one stylus drag at a time, page
-by page. 3DSort edits the layout directly on the SD card instead. Put the card
-in your computer, drag games, folders and badges around in a desktop app with a
-live preview of the console screen, sort with one click, then write the result
-back and boot the console.
+Organizing icons on the console is one stylus drag at a time. 3DSort edits the
+layout on the SD card instead: put the card in your computer, drag games,
+folders and badges around with a live preview of the console screen, then write
+it back and boot the console.
 
 **[Download the latest release](https://github.com/SalustLab/3DSort/releases/latest)**:
-a portable `.exe` for Windows, a `3DSort.app` for Apple Silicon Macs and a
-`tar.gz` for Linux. No installer and no Python needed.
+a portable `.exe` for Windows, a `.app` for Apple Silicon Macs and a `tar.gz`
+for Linux. No installer, no Python.
 
 ![The GRID tab: live console preview, the drag-and-drop grid with games, a decorated folder and badges, and the badge collection panel](docs/images/grid.png)
 
-> [!IMPORTANT]
-> Every write takes an automatic backup first, and nothing touches the card
-> until you confirm. When you move system apps or folders, do not boot the HOME
-> menu between writing on the PC and running the inject script on the console.
-
-## New in v1.2.0: badges and exact positions
-
-- **Badges on the grid.** The collection installed on your card shows up in a
-  panel: drag a badge onto any empty cell, move it, return it to the collection,
-  or set it as a folder icon (from the Decorate button, the New folder dialog,
-  or by dropping it on the folder's big icon inside the folder). Pieces of a big
-  badge are placed one by one, exactly as the console does it.
-- **Exact positions.** Empty cells are real: moving something leaves a gap, like
-  on the console. Cells are numbered so you can match the grid to the screen.
-- **Compact** closes the gaps of the current grid, keeping the order.
-- **Sort presets** now lay the whole grid out: system apps, Game Card, folders
-  and badges first, then the games sorted A to Z, Z to A or by release date.
-- Staged changes are named ("Moved Mario Kart 7 to cell 124"), so the history in
-  SYNC reads like a log.
-
-Badges are the ones already in your collection; 3DSort does not install any.
-Since the Badge Arcade service ended, homebrew tools such as
-[GYTB](https://wiki.hacks.guide/wiki/3DS:GYTB) install custom badges on a CFW
-console. The badge file format and the full write cycle were validated on a
-real New 3DS: every edit the app writes matches what the console itself writes,
-byte for byte (details in [docs/BADGES_TESTING.md](docs/BADGES_TESTING.md)).
-
-![Decorate folder: pick a badge by its image as the icon of a folder](docs/images/badges.png)
-
 ## What it does
 
-- Swap any two tiles by dropping one onto the other: games, system apps,
-  folder tiles, badges, even the Game Card slot
-- Move games, system apps and badges in and out of folders
-- Select many titles at once (click, then Shift-click a range or Ctrl-click
-  to add) and drag them together onto a title, an empty cell or a folder
-- Sort A to Z, Z to A or by release date. DSiWare and NDS forwarders installed
-  on the NAND are sorted together with the games, dated like the DS game they
-  launch
-- Create, rename, empty and delete folders; give them a badge as icon
-- Live preview that reproduces the console screen exactly, for every view
-  setting from 1x60 to 6x10
-- Every change is staged first, with undo, redo and reset. Nothing touches the
-  card until you hit WRITE and confirm
-- A backup of the current layout is taken automatically before every write,
-  and any backup can be restored later
-- Every write also unwraps gift-boxed icons in bulk (same mechanism as
-  Cthulhu's "Unwrap all") and preserves the HOME menu theme you picked on the
-  console, even when restoring an old backup
+- Drag and drop anything: games, system apps, folders, badges, the Game Card
+  slot. Drop one tile on another to swap them, or on an empty cell to move it
+- Select many titles at once (Shift-click a range, Ctrl-click or Cmd-click to
+  add) and move them together onto a title, an empty cell or a folder
+- Sort A to Z, Z to A or by release date, DSiWare and NDS forwarders included
+- Create, rename and delete folders, and give them a badge as icon
+- Place the badges from your collection on the grid (3DSort does not install
+  badges; tools like [GYTB](https://wiki.hacks.guide/wiki/3DS:GYTB) do)
+- Live preview of the console screen for every view setting
+- Undo, redo and reset. Nothing touches the card until you hit WRITE and
+  confirm, and every write takes an automatic, restorable backup first
+- Unwraps gift-boxed icons and keeps your HOME menu theme on every write
 
-## Writing and backups
-
-![The SYNC tab: SD card status, import and backup buttons, and a restorable history of every write](docs/images/sync.png)
-
-Games and badges live on the SD card, so those writes are done when the app
-says so. Moving system apps and folders needs one extra step, because their
-layout lives in a NAND system save: dump it once with the generated
-`3DSort_dump` GodMode9 script, edit freely on the PC, then run `3DSort_inject`
-in GodMode9 after writing. The inject script verifies every copy with SHA-256
-gates and fixes the save CMAC, and it aborts rather than write anything
-inconsistent. Without that dump, system apps simply stay pinned and everything
-else keeps working.
-
-One rule keeps that cycle smooth: do not boot the HOME menu between writing
-and injecting. Every HOME boot touches the NAND save, so the inject script
-will refuse a stale target. If it happens, run `3DSort_dump` again and retry;
-nothing is lost. An interrupted write (card pulled, power cut) shows up in SYNC
-with two explicit choices: complete it or restore the pre-write backup.
+![Decorate folder: pick a badge by its image as the icon of a folder](docs/images/badges.png)
 
 ## What you need
 
 - A 3DS with custom firmware (Luma3DS) and GodMode9
-- A PC with an SD card reader. On Windows also the
-  [WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703): Windows 11
-  ships with it, Windows 10 may not. Without it the app opens a screen saying so
-- The console's `boot9.bin` and `movable.sed`. You do not copy these by hand:
-  the app writes a `3DSort_dump` script to the card and that script dumps them
-  for you, along with the HOME menu save
+- A PC with an SD card reader. On Windows 10, possibly the
+  [WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
+  (Windows 11 has it; the app tells you if it is missing)
 
-Regions: USA is tested on real hardware. JPN, EUR, CHN, KOR and TWN use the
-documented ids and should work, but have not run on a console. Always let
-`3DSort_dump` take `movable.sed` fresh from the console: a key from an old NAND
-backup will not decrypt the card after a format or system transfer, and the app
-says so instead of failing with a cryptic error.
+The first run walks you through the rest: pick the SD card, run the
+`3DSort_dump` script the app puts on the card, press verify. That script copies
+the console keys (`boot9.bin`, `movable.sed`) and the HOME menu save, so you
+never copy them by hand. The INSTRUCTIONS tab keeps the full procedure.
 
-<div align="center">
-<img src="docs/images/wizard.png" alt="First-run setup: the app walks you through dumping the console data" width="720">
-</div>
+Regions: USA, JPN and EUR are tested on real consoles; CHN, KOR and TWN should
+work but have not run on one.
 
-The first run walks you through it: pick the SD card, run `3DSort_dump` on the
-console, press verify. Settings has a "Setup guide" entry that reopens the same
-walkthrough at any time, and the INSTRUCTIONS tab keeps the whole procedure.
+## Writing to the card
 
-### If your console's region was changed (CTRTransfer)
+![The SYNC tab: SD card status, import and backup buttons, and a restorable history of every write](docs/images/sync.png)
 
-Changing a console's region does not remove the HOME menu layout it had before.
-Both sit on the card side by side, and only one of them is the layout your
-console actually uses — the other is frozen at the moment of the change.
+Games and badges live on the SD card, so those writes are done when the app
+says so. System apps and folders live in a NAND save: after writing, run
+`3DSort_inject` in GodMode9. It checks every copy with SHA-256 and aborts
+rather than write anything inconsistent.
 
-3DSort asks which one is yours the first time it sees the card, and shows what
-is in each so you can tell them apart:
+> [!IMPORTANT]
+> Do not boot the HOME menu between writing on the PC and running
+> `3DSort_inject`. If you do, the script refuses to run: dump again and retry,
+> nothing is lost.
 
-```
-USA   52 games, 3 folders    last used 2024-03-14 18:05   ← suggested
-JPN    4 games, no folders   last used 2023-11-02 09:40
-```
+An interrupted write (card pulled, power cut) shows up in SYNC, where you can
+complete it or restore the backup.
 
-The suggested one is whichever was written most recently, which is almost
-always the live one — but you decide, and the answer is remembered. You can
-change it later from the SYNC tab.
+## Troubleshooting
 
-**Only the layout you pick is ever written to.** The one from before the region
-change is left untouched, byte for byte, so it stays available as a fallback.
-
-### If the window stays empty
-
-The window says why it cannot start instead of sitting on a bare top bar:
-
-- **Windows, "3DSort needs the Microsoft Edge WebView2 Runtime"**: Windows opened
-  the app with the old Internet Explorer engine. Install the runtime from the
-  link on that screen (it opens in your browser), then reopen 3DSort.
-- **"3DSort could not start"** or **"Still waiting for 3DSort"**:
+- **Region-changed console (CTRTransfer):** the card keeps the layout from
+  before the change. 3DSort shows both with their contents, suggests the most
+  recent one and asks which is yours; only the one you pick is ever written.
+  You can change it later in SYNC.
+- **"3DSort needs the Microsoft Edge WebView2 Runtime":** install it from the
+  link on that screen, then reopen 3DSort.
+- **"3DSort could not start" or "Still waiting for 3DSort":**
   [open an issue](https://github.com/SalustLab/3DSort/issues) with the text on
-  screen. On Linux, also start `./3DSort` from a terminal and include what it
-  prints ([details](docs/LINUX_TESTING.md#if-the-window-stays-empty)).
+  screen. On Linux, also run `./3DSort` from a terminal and include its output.
+- **Old keys:** always let `3DSort_dump` take `movable.sed` from the console. A
+  key from an old NAND backup stops working after a format or system transfer.
 
 ## Running from source
 
 ```
 pip install -r requirements-dev.txt
-
-python app.py                          # native window, real SD card
-python app.py --serve                  # same app in the browser at http://127.0.0.1:8347
-python app.py --serve --mock --mock-badges   # synthetic data with badges, no SD or keys
+python app.py                                # native window, real SD card
+python app.py --serve --mock --mock-badges   # browser, synthetic data
 ```
 
 ### Tests
 
 ```
-python -m pytest tests -q     # 205 tests
+python -m pytest tests -q     # 269 tests, no console needed
 ```
 
-The suite runs on any machine. Tests that need real console keys skip
-themselves automatically, and a guard test fails if anything ever writes to a
-real SD card. `node tools/test_spatial_ui.cjs` drives the grid in a headless
-browser (development only; Playwright is not a runtime dependency).
+Tests that need real console keys skip themselves, and a guard test fails if
+anything ever writes to a real SD card. `node tools/test_spatial_ui.cjs` and
+`node tools/test_multiselect_ui.cjs` drive the UI in a headless browser.
 
 ## Building
 
-**Windows**: `pyinstaller 3DSort.spec` produces a single portable
-`dist\3DSort.exe`; `dist\3DSort.exe --selftest` (exit code 0) verifies the
-bundled UI, fonts, icon and save3ds binary. No network access at runtime.
-
-**macOS (Apple Silicon)**: the release `3DSort.app` zip is built by GitHub
-Actions. It is not notarized yet: right-click and pick Open on first launch, or
-run `xattr -cr 3DSort.app`. From source: Python 3.10+ and Rust, then
-`tools/build_save3ds_macos.sh` and `python -m PyInstaller 3DSort.macos.spec`.
-Cards mount under `/Volumes`; `--sd /Volumes/<card>` overrides.
-
-**Linux (x86_64)**: the release `tar.gz` is built on Ubuntu 24.04 and needs
-glibc 2.39 or newer plus WebKitGTK (`sudo apt install gir1.2-webkit2-4.1
-libwebkit2gtk-4.1-0`). From source: `pip install pywebview[gtk]` (or `[qt]`),
-the distro's GTK/WebKit and `python3-tk` packages, and a save3ds binary built
-once with `bash tools/build_save3ds_macos.sh` (cross-platform despite the
-name). Cards are looked up under `/media/<user>`, `/run/media/<user>`, `/mnt`
-and `/Volumes`; any other mount point can be picked in Settings. If the window
-stays empty, start `./3DSort` from a terminal and include what it prints when
-you open an issue.
+- **Windows:** `pyinstaller 3DSort.spec`, then `dist\3DSort.exe --selftest`
+- **macOS (Apple Silicon):** built by GitHub Actions; not notarized, so
+  right-click and Open on first launch (or `xattr -cr 3DSort.app`). From
+  source: `tools/build_save3ds_macos.sh`, then `pyinstaller 3DSort.macos.spec`
+- **Linux (x86_64):** the release needs glibc 2.39+ and WebKitGTK
+  (`sudo apt install gir1.2-webkit2-4.1 libwebkit2gtk-4.1-0`). From source:
+  `pip install pywebview[gtk]` and a save3ds built with
+  `bash tools/build_save3ds_macos.sh`. See [docs/LINUX_TESTING.md](docs/LINUX_TESTING.md)
 
 ## How it works
 
-The HOME menu layout lives in an encrypted extdata archive on the SD card.
-3DSort uses [save3ds](https://github.com/wwylele/save3ds) to extract and
-reimport that archive with your console's keys, then parses `SaveData.dat`
-itself. Anything in the file it does not understand is preserved byte for
-byte. Icons and names come from the console's own icon cache, so the grid
-shows exactly what the console shows.
-
-Folder definitions and system app positions live in `Launcher.dat`, inside a
-system save on the NAND. 3DSort edits that file through the same save3ds
-engine, but it can only reach the NAND with your help: a GodMode9 script dumps
-the save container to the card, the app edits it, and another script injects
-it back, hash-checked end to end.
-
-Badges live in a third archive on the card: a catalog of the badges you own
-and a table of 360 placements (cell, folder, or "icon of the folder at this
-cell"). 3DSort only ever rewrites that placement table and its counters; the
-artwork and the catalog stay untouched.
+The HOME menu layout lives in an encrypted archive on the SD card.
+[save3ds](https://github.com/wwylele/save3ds) extracts and reimports it with
+your console's keys; 3DSort edits `SaveData.dat` and preserves every byte it
+does not understand. Folders and system app positions live in `Launcher.dat`
+on the NAND, reached through the GodMode9 dump and inject scripts. Badges live
+in a third archive, where only the placement table is rewritten.
 
 ## Status
 
-Stable for daily use, still labeled beta. 243 tests, including round trips
-against a copy of a real card. The full cycle (write, NAND inject, restore) has
-been validated end to end on two USA New 3DS consoles, and the badge features
-on one of them. On macOS, the v1.1.0 app was validated by a community
-contributor on Tahoe 26.6.2 against a real New 2DS XL, including the write and
-inject cycle. Support for region-changed (CTRTransfer) consoles was validated by
-another contributor on a JPN-to-USA console, write and inject cycle included.
-The app never writes without an automatic backup and an explicit
-confirmation.
+Stable for daily use, still labeled beta. The full cycle (write, NAND inject,
+restore) is validated on two USA New 3DS consoles, on a New 2DS XL from macOS,
+and on a JPN-to-USA region-changed console.
 
 ## License
 
-[GPL-3.0](LICENSE). The bulk unwrap mechanism was reimplemented from
-[Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu), which is GPL-3.0, so 3DSort
-carries the same license.
+[GPL-3.0](LICENSE), the same as [Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu),
+whose bulk unwrap mechanism 3DSort reimplements.
 
 ## Credits
 
-- [save3ds](https://github.com/wwylele/save3ds) by wwylele handles the 3DS
-  crypto and filesystem, which is the genuinely hard part
+- [save3ds](https://github.com/wwylele/save3ds) by wwylele, which handles the
+  3DS crypto and filesystem
 - [3dbrew](https://www.3dbrew.org/wiki/Home_Menu) for the file format
-  documentation, badges included
-- [Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu) by Ryuzaki-MrL, whose
-  "Unwrap all" feature revealed how the gift-wrap flags work
+  documentation
+- [Cthulhu](https://github.com/Ryuzaki-MrL/Cthulhu) by Ryuzaki-MrL, which
+  showed how the gift-wrap flags work
 - [GYTB](https://github.com/MrCheeze/GYTB) by MrCheeze and
   [Simple Badge Injector](https://github.com/AntiMach/simple-badge-injector) by
-  AntiMach, the tools that put badges on the test console
-- [@appleforever11](https://github.com/appleforever11) contributed the
-  macOS (Apple Silicon) support and validated the v1.1.0 release app on a
-  real New 2DS XL from a Mac, including the write/inject cycle
-- [@ratatabananana-bit](https://github.com/ratatabananana-bit) diagnosed and
-  fixed HOME menu selection on region-changed (CTRTransfer) consoles, and
-  validated the write/inject cycle on one
-- [@krazykuzon-hue](https://github.com/krazykuzon-hue) built multi-select
-  (Shift-click and Ctrl-click group moves) and found the stale dump cache
-  that brought back pre-inject positions
+  AntiMach, which put badges on the test console
+- [@appleforever11](https://github.com/appleforever11): macOS support, validated
+  on a real New 2DS XL
+- [@ratatabananana-bit](https://github.com/ratatabananana-bit): region-changed
+  (CTRTransfer) console support, validated on hardware
+- [@krazykuzon-hue](https://github.com/krazykuzon-hue): multi-select, and the
+  stale dump cache fix
 
 ## Support
 
