@@ -75,6 +75,7 @@ class Api(LayoutApi, WriteApi):
         self.backups = backups
         self.launcher_path = launcher      # flat Launcher.dat (read-only fallback)
         self.container_path = container    # homemenu_save.bin (system save, editable)
+        self._fallback_container = container
         self.console = None
         # {id0: region} - which HOME menu a region-changed card uses. A heuristic
         # that re-runs on every import can flip-flop; the user's answer must not.
@@ -286,12 +287,13 @@ class Api(LayoutApi, WriteApi):
         cp --hash, so copying them here does not fabricate an anchor."""
         import shutil
         dst = sd3 / "homemenu_save.bin"
-        if dst.exists() and dst.read_bytes() == src.read_bytes():
-            return
-        shutil.copy2(src, dst)
+        if not dst.exists() or dst.read_bytes() != src.read_bytes():
+            shutil.copy2(src, dst)
         sha = src.parent / (src.name + ".sha")
         if sha.exists():
             shutil.copy2(sha, sd3 / "homemenu_save.bin.sha")
+        else:
+            (sd3 / "homemenu_save.bin.sha").unlink(missing_ok=True)
 
     def _find_container(self) -> Path | None:
         cands = []
@@ -299,7 +301,11 @@ class Api(LayoutApi, WriteApi):
             sd3 = Path(self.sd_root) / "3DSort"
             if self._pending_inject_info():
                 # a write is published: the GENERATED container is the app's truth
-                cands.append(sd3 / "homemenu_save_new.bin")
+                # The marker lives in the workdir, not on the card: another card
+                # has no payload and must still open from its own dump.
+                payload = sd3 / "homemenu_save_new.bin"
+                if payload.is_file():
+                    return payload
             if self.console is not None:
                 # the dump script leaves one file per save id present on the NAND
                 picked = sd3 / f"homemenu_save_{self._nand_save_id()}.bin"
@@ -307,8 +313,8 @@ class Api(LayoutApi, WriteApi):
                     self._promote_region_dump(sd3, picked)
                     cands.append(picked)
             cands.append(sd3 / "homemenu_save.bin")
-        if self.container_path:  # explicit (build_api: sandbox/APP_DIR; mock: tmp)
-            cands.append(Path(self.container_path))
+        if self._fallback_container:  # explicit fallback, never a previously imported card
+            cands.append(Path(self._fallback_container))
         return next((p for p in cands if p.exists()), None)
 
     def _read_launcher(self) -> bytes | None:
@@ -739,6 +745,7 @@ class Api(LayoutApi, WriteApi):
         marker.write_text(json.dumps({
             "sha": digest.hex(), "when": time.strftime("%Y-%m-%d %H:%M:%S"),
             "changes": n_changes,
+            "sourceSha": self._container_sha,
             "badgeDependent": bool(st.get("badge_layout") or self._badge_baseline)}), encoding="utf-8")
 
     # ---- pending inject (NAND) -------------------------------------------
@@ -751,7 +758,13 @@ class Api(LayoutApi, WriteApi):
             return None
         return json.loads(p.read_text(encoding="utf-8"))
 
-    def _check_inject_receipt(self) -> bool:
+    PAYLOAD_CHANGED_ERROR = ("Injection payload changed after writing. Keep the card "
+                             "files and backups; do not mark the injection as done.")
+
+    def _payload_intact(self, payload: Path, info: dict) -> bool:
+        return hashlib.sha256(payload.read_bytes()).hexdigest() == info["sha"]
+
+    def _check_inject_receipt(self, strict=False) -> bool:
         """The GM9 script receipt confirms the injection: promotes the generated
         container to current dump and clears the pending state."""
         info = self._pending_inject_info()
@@ -763,6 +776,10 @@ class Api(LayoutApi, WriteApi):
         if not (receipt.exists() and payload.exists()):
             return False
         if receipt.read_bytes() != bytes.fromhex(info["sha"]):
+            return False
+        if not self._payload_intact(payload, info):
+            if strict:  # Verify reports it; the import path stays open
+                raise ValueError(self.PAYLOAD_CHANGED_ERROR)
             return False
         self._promote_payload(sd3)
         receipt.unlink(missing_ok=True)
@@ -780,7 +797,23 @@ class Api(LayoutApi, WriteApi):
         import shutil
         payload = sd3 / "homemenu_save_new.bin"
         if payload.exists():
-            shutil.move(str(payload), sd3 / "homemenu_save.bin")
+            # Keep the region-specific cache consistent too: _find_container
+            # prefers it on every import. Never retain its pre-inject SHA anchor.
+            regional = sd3 / f"homemenu_save_{self._nand_save_id()}.bin"
+            anchor = Path(str(regional) + '.sha')
+            info = self._pending_inject_info() or {}
+            old = sd3 / 'homemenu_save.bin'
+            source_sha = info.get('sourceSha') or (hashlib.sha256(old.read_bytes()).hexdigest() if old.exists() else None)
+            # A user may already have dumped again after injecting. Preserve
+            # that actual console snapshot rather than replacing it with ours.
+            fresh = (regional.exists() and anchor.exists() and
+                     anchor.read_bytes() == hashlib.sha256(regional.read_bytes()).digest() and
+                     hashlib.sha256(regional.read_bytes()).hexdigest() != source_sha)
+            shutil.copy2(payload, sd3 / "homemenu_save.bin")
+            if regional.exists() and not fresh:
+                shutil.copy2(payload, regional)
+                anchor.unlink(missing_ok=True)
+            payload.unlink()
         (sd3 / "homemenu_save_new.bin.sha").unlink(missing_ok=True)
         (sd3 / "homemenu_save.bin.sha").unlink(missing_ok=True)
         self._delete_inject_script()
@@ -795,7 +828,7 @@ class Api(LayoutApi, WriteApi):
             return {"error": "Recover the interrupted write first."}
         if self._pending_inject_info() is None:
             return self.get_state()
-        if self._check_inject_receipt():
+        if self._check_inject_receipt(strict=True):
             return self.import_sd()
         return {"error": "No inject receipt found. Run the 3DSort_inject script "
                          "in GodMode9, then verify again."}
@@ -804,8 +837,12 @@ class Api(LayoutApi, WriteApi):
         """Manual override: the user vouches they injected without a receipt."""
         if self._recovery_info():
             return {"error": "Recover the interrupted write first."}
-        if self._pending_inject_info() is not None and self.sd_root is not None:
+        info = self._pending_inject_info()
+        if info is not None and self.sd_root is not None:
             sd3 = Path(self.sd_root) / "3DSort"
+            payload = sd3 / "homemenu_save_new.bin"
+            if payload.exists() and not self._payload_intact(payload, info):
+                return {"error": self.PAYLOAD_CHANGED_ERROR}
             self._promote_payload(sd3)
             (sd3 / "inject_done.sha").unlink(missing_ok=True)
         self._pending_path().unlink(missing_ok=True)

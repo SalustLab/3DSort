@@ -8,7 +8,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
-[![Tests](https://img.shields.io/badge/tests-205%20passing-7ac70c?style=flat-square)](#tests)
+[![Tests](https://img.shields.io/badge/tests-269%20passing-7ac70c?style=flat-square)](#tests)
 [![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
 [![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
 [![Version](https://img.shields.io/badge/version-v1.2.0-d31e40?style=flat-square)](#status)
@@ -66,6 +66,8 @@ byte for byte (details in [docs/BADGES_TESTING.md](docs/BADGES_TESTING.md)).
 - Swap any two tiles by dropping one onto the other: games, system apps,
   folder tiles, badges, even the Game Card slot
 - Move games, system apps and badges in and out of folders
+- Select many titles at once (click, then Shift-click a range or Ctrl-click
+  to add) and drag them together onto a title, an empty cell or a folder
 - Sort A to Z, Z to A or by release date. DSiWare and NDS forwarders installed
   on the NAND are sorted together with the games, dated like the DS game they
   launch
@@ -254,6 +256,9 @@ carries the same license.
 - [@ratatabananana-bit](https://github.com/ratatabananana-bit) diagnosed and
   fixed HOME menu selection on region-changed (CTRTransfer) consoles, and
   validated the write/inject cycle on one
+- [@krazykuzon-hue](https://github.com/krazykuzon-hue) built multi-select
+  (Shift-click and Ctrl-click group moves) and found the stale dump cache
+  that brought back pre-inject positions
 
 ## Support
 

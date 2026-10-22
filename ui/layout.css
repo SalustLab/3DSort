@@ -74,3 +74,9 @@
 .badge-choice span:not(.pick-none) { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; max-width:100%; text-align:center; font-size:12px; line-height:1.2; overflow-wrap:anywhere; word-break:break-word; }
 @media (max-width:1100px) { .badge-panel { width:210px; } .badge-panel .badge-list { gap:4px; } }
 #badgeReturn { margin-top:18px; }
+/* Multi-selection is visible on every title, including movable NAND apps. */
+.selection-status { padding: 5px 8px 9px; font-size: 12px; color: var(--mut); }
+#grid .item { user-select: none; position: relative; }
+#grid .item.sel { outline: 3px solid var(--red); outline-offset: -3px; background: #fde8ec; border-radius: 12px; }
+#grid .item.sel::after { content: '✓'; position: absolute; top: 3px; right: 5px; color: var(--red); font-weight: 900; }
+.conflict-cell { border: 2px solid var(--red); background: #fde8ec; font-size: 11px; gap: 3px; padding: 8px; cursor: default; }

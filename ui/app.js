@@ -10,7 +10,7 @@ const P = Object.assign(
   { tab: "GRID", iconSize: "M", viewRows: 4, page: 1, showLabels: true,
     sortMode: "Manual", themeId: "cosmos" },
   JSON.parse((store && store.getItem("prefs")) || "{}"),
-  { openFolder: null, selected: null, sortMenu: false, dragKey: null,
+  { openFolder: null, selected: null, selectedKeys: [], selectionAnchor: null, selectionFolder: -1, dragKeys: [], sortMenu: false, dragKey: null,
     driveMenu: false, drives: null, guidePage: 1 }
 );
 const savePrefs = () => store && store.setItem("prefs", JSON.stringify({
@@ -72,6 +72,40 @@ const FOLDER_BLUE = "#3b4cca";
 // WebKitGTK (Linux) cancels a drag with an empty dataTransfer (issue #4). Our
 // own type, so a tile dropped on a text field never pastes its key.
 const DRAG_MIME = "application/x-3dsort";
+const selectableTitles = () => [...S.items, ...(S.system || [])].filter(i =>
+  i.folder === currentContainer() && i.key && /^(g|n):/.test(i.key) && !i.pinned);
+function syncSelection() {
+  if (P.selectionFolder !== currentContainer()) {
+    P.selectedKeys = []; P.selectionAnchor = null; P.selectionFolder = currentContainer();
+  }
+  const keys = new Set(selectableTitles().map(i => i.key));
+  P.selectedKeys = P.selectedKeys.filter(k => keys.has(k));
+  if (!keys.has(P.selectionAnchor)) P.selectionAnchor = null;
+}
+function paintSelection() {
+  document.querySelectorAll('#grid .item[data-ekey]').forEach(el => {
+    const selected = P.selectedKeys.includes(el.dataset.ekey);
+    el.classList.toggle('sel', selected);
+    el.setAttribute('aria-selected', String(selected));
+  });
+  const status = document.getElementById('selectionStatus');
+  if (status) status.textContent = P.selectedKeys.length > 1 ? `${P.selectedKeys.length} selected · drag onto a title to insert before it, an empty cell to move, or a folder · Esc clears` : 'Click a title, then Shift-click another to select a range · Ctrl-click toggles titles';
+}
+function selectTitle(key, event) {
+  const keys = selectableTitles().sort((a, b) => a.pos - b.pos).map(i => i.key);
+  if (event.shiftKey && keys.includes(P.selectionAnchor)) {
+    const a = keys.indexOf(P.selectionAnchor), b = keys.indexOf(key);
+    const range = keys.slice(Math.min(a, b), Math.max(a, b) + 1);
+    P.selectedKeys = event.ctrlKey || event.metaKey ? [...new Set([...P.selectedKeys, ...range])] : range;
+  } else if (event.ctrlKey || event.metaKey) {
+    P.selectedKeys = P.selectedKeys.includes(key) ? P.selectedKeys.filter(k => k !== key) : [...P.selectedKeys, key];
+    P.selectionAnchor = key;
+  } else {
+    P.selectedKeys = [key]; P.selectionAnchor = key;
+  }
+  P.selected = key.startsWith('g:') ? +key.split(':')[1] : null;
+  render();
+}
 const dark = h => {
   const n = parseInt(h.slice(1), 16), f = .62;
   return "#" + ((1 << 24) | (Math.round((n >> 16) * f) << 16) | (Math.round(((n >> 8) & 255) * f) << 8) | Math.round((n & 255) * f)).toString(16).slice(1);
@@ -334,6 +368,7 @@ function gridScreen() {
       </div>
     </div>
     ${spatialControls(-1)}
+    <div id="selectionStatus" class="selection-status" role="status"></div>
     <div class="grid" id="grid" style="grid-template-columns:repeat(${cols},minmax(0,1fr))">${tiles}</div>
     ${statusBar()}
   </div>`;
@@ -366,6 +401,7 @@ function folderScreen(px) {
       <div style="font-size:12px;color:#cbb694;font-weight:600">drag titles in from the home grid, or out to remove</div>
     </div>
     ${spatialControls(id)}
+    <div id="selectionStatus" class="selection-status" role="status"></div>
     <div class="grid" id="grid" data-in-folder="${id}" style="grid-template-columns:repeat(${COLS[(S.folderRows[id] || 2) - 1]},minmax(0,1fr))">
       ${spatialFolderGrid(id, 56)}
     </div>
@@ -544,7 +580,7 @@ function syncScreen() {
 // Button labels live here because instruction text refers to them by name. A
 // literal in prose plus a different literal on the button is how the wizard grew
 // a "press Verify below" under a button that said DONE.
-const VERSION = "v1.2.3";
+const VERSION = "v1.3.0";
 
 const BTN_IMPORT = "Import layout from SD";
 const BTN_VERIFY_INJECT = "Verify";
@@ -860,10 +896,16 @@ function bind() {
   if ($("labelsToggle")) $("labelsToggle").onclick = () => { P.showLabels = !P.showLabels; savePrefs(); render(); };
   if ($("checkUpdates")) $("checkUpdates").onclick = () => toast("You're on the latest version");
 
-  // grid: selection (games), drag by entity key (g:/n:/f:/cart), folders
-  document.querySelectorAll(".item[data-slot]").forEach(el => {
-    el.onclick = () => { P.selected = +el.dataset.slot; render(); };
+  // Selection follows console cell order (down a column, then across).
+  syncSelection();
+  const selectable = new Set(selectableTitles().map(i => i.key));
+  document.querySelectorAll('#grid .item[data-ekey]').forEach(el => {
+    if (!selectable.has(el.dataset.ekey)) return;
+    el.onclick = e => selectTitle(el.dataset.ekey, e);
+    el.tabIndex = 0;
+    el.onkeydown = e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); selectTitle(el.dataset.ekey, e); } };
   });
+  paintSelection();
   document.querySelectorAll("[data-folder-tile]").forEach(el => {
     el.onclick = () => { P.openFolder = +el.dataset.folderTile; render(); };
   });
@@ -871,12 +913,20 @@ function bind() {
   document.querySelectorAll(".item[data-ekey]").forEach(el => {
     el.ondragstart = e => {
       P.dragKey = el.dataset.ekey;
+      if (selectable.has(P.dragKey)) {
+        if (!P.selectedKeys.includes(P.dragKey)) { P.selectedKeys = [P.dragKey]; P.selectionAnchor = P.dragKey; }
+        P.dragKeys = [...P.selectedKeys];
+        paintSelection();
+      } else P.dragKeys = [];
       e.dataTransfer.setData(DRAG_MIME, P.dragKey);
       e.dataTransfer.effectAllowed = "move";
-      setTimeout(() => el.classList.add("dragging")); // after the browser captures the drag ghost
+      setTimeout(() => document.querySelectorAll('.item[data-ekey]').forEach(tile => {
+        if (tile === el || P.dragKeys.includes(tile.dataset.ekey)) tile.classList.add('dragging');
+      })); // after the browser captures the drag ghost
     };
     el.ondragend = () => {
-      el.classList.remove("dragging");
+      document.querySelectorAll('.dragging').forEach(tile => tile.classList.remove('dragging'));
+      P.dragKeys = [];
       if (P.dragKey !== null) { P.dragKey = null; render(); } // cancelled: restore the order from S
     };
   });
@@ -913,7 +963,7 @@ function bind() {
       } else if (t.dataset.folderTile !== undefined && (k === "g" || k === "n" || k === "b" || k === "collection")) {
         t.classList.add("drop-into");                  // title over a folder = move it inside
       } else if (t.dataset.ekey !== undefined && k !== "collection") {       // any pair of tiles = swap places
-        t.classList.add("swap-with");
+        if (P.dragKeys.length < 2 || selectable.has(t.dataset.ekey)) t.classList.add("swap-with");
       }                                                // pinned tile/placeholder: invalid target
     };
     grid.ondrop = e => {
@@ -921,6 +971,16 @@ function bind() {
       if (P.dragKey === null) return;
       const key = P.dragKey;
       P.dragKey = null;
+      const keys = P.dragKeys; P.dragKeys = [];
+      if (keys.length > 1) {
+        const target = e.target.closest('.item');
+        if (!target || keys.includes(target.dataset.ekey)) { render(); return; }
+        if (target.dataset.folderTile !== undefined) refresh('move_games', [keys, +target.dataset.folderTile]);
+        else if (target.dataset.empty !== undefined) refresh('move_games', [keys, +target.dataset.container, +target.dataset.cell]);
+        else if (selectable.has(target.dataset.ekey)) refresh('move_games', [keys, currentContainer(), null, target.dataset.ekey]);
+        else { render(); toast('Drop the selected titles onto a game, folder or empty cell'); }
+        return;
+      }
       const empty = grid.querySelector(".move-here");
       if (empty) {
         if (key.startsWith("collection:")) refresh("place_badge", [+key.split(":")[1], +empty.dataset.container, +empty.dataset.cell, gridRows()]).then(r => { if (r) toast("Badge placed (staged)"); });
@@ -943,6 +1003,8 @@ function bind() {
       if (P.dragKey === null) return;
       const key = P.dragKey;
       P.dragKey = null;
+      const keys = P.dragKeys; P.dragKeys = [];
+      if (keys.length > 1) { refresh('move_games', [keys, -1]); return; }
       refresh("set_folder", [key, -1, P.viewRows]).then(r => { if (r) toast("Sent back to home grid (staged)"); });
     };
   }
