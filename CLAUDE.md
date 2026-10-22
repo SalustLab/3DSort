@@ -18,6 +18,12 @@ cancel drags (§7).
 by the gamecode in the tid (§6). Confirmed on hardware by the reporter (a
 Reddit user, no GitHub issue) with the test2 build.
 
+**pr-6 (2026-10-22, unreleased; PR #6 by @krazykuzon-hue, ported from the
+source in their zip):** multi-select (Shift/Ctrl-click, group drag,
+`move_games`, §6/§7) and the regional dump cache fix (§5.8): after an inject
+the pre-inject `homemenu_save_<saveid>.bin` was promoted back over the
+payload on the next import. Needs a hardware inject cycle before release.
+
 ## 1. What the project is
 
 **3DSort** is a desktop app (Windows-first) that reorganizes the Nintendo 3DS
@@ -97,6 +103,8 @@ tests and development.
 │                             api_settings, titledates, api_setup, packaging,
 │                             api_region (region-changed cards, §5.8),
 │                             api_spatial + badges (§12),
+│                             multiselect (move_games), import_consistency
+│                             (regional dump cache vs inject, §5.8),
 │                             ui_boot (the 405 trap + boot guard §7, UI consts), plus
 │                             test_integration.py: REAL save3ds (sdext +
 │                             nandsave) over copies, and
@@ -108,6 +116,7 @@ tests and development.
 ├── tools/build_titledates.py ← generates core/titledates.json.gz (3dsdb + GameTDB 3DS/DS; needs internet)
 ├── tools/make_icon.py      ← generates ui/3dsort.ico (Pillow)
 ├── tools/test_spatial_ui.cjs ← Playwright UI regression (own --mock server, port 8394)
+├── tools/test_multiselect_ui.cjs ← Playwright multi-select regression (port 8396)
 ├── tools/readme_shots.cjs  ← README screenshots from --mock (port 8395)
 ├── tools/inspect_badge_dumps.py ← read-only diff of two extracted badge trees
 └── sandbox/                ← NEVER version. Copy of the real SD + the dev console's keys
@@ -144,7 +153,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (251; real integration skipped without sandbox/keys; the real-SD guard
+# tests (271; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -153,6 +162,7 @@ python -m pytest tests -q -k "boot_guard"                   # by name
 
 # Playwright UI regression (needs node + playwright; PYTHON = interpreter path)
 node tools/test_spatial_ui.cjs
+node tools/test_multiselect_ui.cjs
 
 # UI in the browser with real sandbox data (default development mode)
 python app.py --serve --sd sandbox\sd    # → http://127.0.0.1:8347
@@ -403,6 +413,19 @@ are staged changes (entity keys, §6); the write generates an injection payload
   anchor at one fixed path now that the dump writes one pair per save id. A full restore may dump+inject
   in one GM9 session (gate 2 becomes a tautology; acceptable, the intent is
   overwrite-everything).
+- **The regional dump cache follows the inject** (fixed 2026-10-22, PR #6):
+  `_find_container` re-promotes `homemenu_save_<saveid>.bin` on every
+  import, so `_promote_payload` copies the payload onto it too and deletes
+  its `.sha`; otherwise the pre-inject dump came back and the grid showed
+  the old NAND positions. Exception: a regional file whose `.sha` matches it
+  and whose bytes differ from the write's source (`sourceSha` in
+  `pending_inject.json`) is a FRESH GM9 dump taken after the inject and is
+  kept. `_promote_region_dump` refreshes the canonical `.sha` from the
+  regional one even when the bytes are identical, and removes it when the
+  regional `.sha` is missing. A pending inject whose payload is gone raises
+  instead of falling back; `verify_inject` refuses a payload whose sha no
+  longer matches the marker. `_fallback_container` keeps only the
+  constructor's container as last resort, never a previous card's.
 - **Keys without manual copying**: `3DSort_dump.gm9` is published on EVERY
   `import_sd` (kills the new user's chicken-and-egg) and dumps container +
   `movable.sed` + `boot9.bin` into `0:/3DSort/`. `Api._resolve_keys` looks in
@@ -490,7 +513,12 @@ are staged changes (entity keys, §6); the write generates an injection payload
   Game Card, folders, badges by name, then the sorted games, no gaps, §12;
   NAND DSiWare — tid high `00048004`, NDS forwarders — sorts WITH the games
   when the launcher is writable, user report 2026-09-30),
-  `compact_games(folder=-1, rows=4)`, `undo/redo/reset_staging`. Launcher mutations require
+  `compact_games(folder=-1, rows=4)`, `move_games(keys, folder, pos=None,
+  before_key=None)` (one grid's g/n selection as ONE staged change:
+  `before_key` = insert before that title, reordering only editable titles
+  inside their occupied cells; otherwise the next free cells from `pos` in
+  `folder`, needs `_spatial_ready`; any failure leaves staging untouched),
+  `undo/redo/reset_staging`. Launcher mutations require
   `launcherWritable`. Every `write_sd` zeroes the status array (unwrap always
   on, §5.4) and grafts the theme region 0x13B8+ (§5.4).
 - `write_sd()` is **all-or-nothing** (SD + launcher from the SAME snapshot):
@@ -633,6 +661,16 @@ are staged changes (entity keys, §6); the write generates an injection payload
   confirmation modal. SYNC shows a pending-inject banner with
   Verify/`Mark as done`/Cancel (Cancel confirms and points to Verify if the
   script already ran).
+- **Multi-select** (PR #6): click selects, Shift-click a range in console
+  cell order (`selectableTitles` sorted by pos = column-major), Ctrl/Cmd-click
+  toggles, Esc clears (after modals and the badge panel). State
+  `P.selectedKeys`/`selectionAnchor`, reset when the container changes;
+  pinned apps, folders and badges are not selectable. Dragging a selected
+  title carries `P.dragKeys`: 2+ keys call `move_games` (title = insert
+  before, empty cell = free cells from there, folder tile = into it,
+  `#removeZone` = back home); a single key keeps the SWAP semantics above.
+  The mark is a CSS `::after`, never an `<img>` (§12 WebView2 trap).
+  Native WebView2 group drags were checked over CDP (2026-10-22).
 - **The project is English-only** (user decision): UI, code comments, error
   messages, generated GM9 scripts, CLAUDE.md, .gitignore comments. The SETTINGS
   language selector was removed; do not reintroduce i18n without a new request.

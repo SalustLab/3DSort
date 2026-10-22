@@ -176,6 +176,57 @@ class LayoutApi:
         names = self._label(self.staging.state, ka), self._label(self.staging.state, kb)
         return self._commit(f"Swapped {names[0]} <-> {names[1]}", **st)
 
+    def move_games(self, keys, folder, pos=None, before_key=None):
+        """Move a selection atomically. Occupied targets insert before a title;
+        empty targets use the next free cells, preserving all other entities.
+        """
+        if not isinstance(keys, list) or not keys or len(keys) > 360:
+            raise ValueError("Select at least one title.")
+        selected = [self._editable_key(key) for key in keys]
+        if len(set(selected)) != len(selected) or any(k[0] not in ("g", "n") for k in selected):
+            raise ValueError("Select distinct games or movable system apps.")
+        st = copy.deepcopy(self.staging.state)
+        entities = self._entity_pos(st)
+        sources = {entities[k][0] for k in selected}
+        if len(sources) != 1:
+            raise ValueError("Select titles from one grid at a time.")
+        if type(folder) is not int or (folder != -1 and folder not in st["folder_defs"]):
+            raise ValueError("Destination folder does not exist.")
+        selected.sort(key=lambda k: entities[k][1])
+        if before_key is not None:
+            target = self._editable_key(before_key)
+            if target[0] not in ("g", "n") or entities[target][0] != folder:
+                raise ValueError("Drop onto a game or an empty cell.")
+            if target in selected:
+                return self.get_state()
+            if sources != {folder}:
+                raise ValueError("Drop onto the folder or an empty cell to move titles between grids.")
+            # Reorder only editable titles in their occupied slots. Pinned apps,
+            # folders, badges and unknown holes stay exactly where they were.
+            movable = [k for k, (f, _) in entities.items() if f == folder and
+                       (k[0] == "g" or (k[0] == "n" and self._launcher_writable))]
+            movable.sort(key=lambda k: entities[k][1])
+            positions = [entities[k][1] for k in movable]
+            ordered = [k for k in movable if k not in selected]
+            index = ordered.index(target)
+            ordered[index:index] = selected
+            for key, dest in zip(ordered, positions):
+                layout.place(st, key, folder, dest)
+        else:
+            self._spatial_ready()
+            if pos is None:
+                pos = 0
+            if type(pos) is not int or not 0 <= pos < layout.capacity(folder):
+                raise ValueError("Destination is outside this grid.")
+            used = {p for k, (f, p) in entities.items() if f == folder and k not in selected}
+            used.update(self._unknown_holes.get(folder, ()))
+            free = [p for p in range(pos, layout.capacity(folder)) if p not in used]
+            if len(free) < len(selected):
+                raise ValueError("Not enough free cells from this position. Choose an earlier cell or another folder.")
+            for key, dest in zip(selected, free):
+                layout.place(st, key, folder, dest)
+        return self._commit(f"Moved {len(selected)} selected titles", **st)
+
     def move_item(self, slot, before_slot=None):
         """Compatibility API: reorder games within their existing occupied cells."""
         st = copy.deepcopy(self.staging.state)

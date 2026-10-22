@@ -66,6 +66,8 @@ byte for byte (details in [docs/BADGES_TESTING.md](docs/BADGES_TESTING.md)).
 - Swap any two tiles by dropping one onto the other: games, system apps,
   folder tiles, badges, even the Game Card slot
 - Move games, system apps and badges in and out of folders
+- Select many titles at once (click, then Shift-click a range or Ctrl-click
+  to add) and drag them together onto a title, an empty cell or a folder
 - Sort A to Z, Z to A or by release date. DSiWare and NDS forwarders installed
   on the NAND are sorted together with the games, dated like the DS game they
   launch
@@ -254,6 +256,9 @@ carries the same license.
 - [@ratatabananana-bit](https://github.com/ratatabananana-bit) diagnosed and
   fixed HOME menu selection on region-changed (CTRTransfer) consoles, and
   validated the write/inject cycle on one
+- [@krazykuzon-hue](https://github.com/krazykuzon-hue) built multi-select
+  (Shift-click and Ctrl-click group moves) and found the stale dump cache
+  that brought back pre-inject positions
 
 ## Support
 

@@ -25,7 +25,14 @@ function containerSequence(folder) {
   ];
   if (folder === -1) entries.push(...folderIds().map(id => ({kind: "folder", id, pos: S.folderPos[id]})));
   const result = [];
-  entries.forEach(e => { if (Number.isInteger(e.pos) && e.pos >= 0) result[e.pos] = e; });
+  entries.forEach(e => {
+    if (!Number.isInteger(e.pos) || e.pos < 0) return;
+    if (result[e.pos]) {
+      const first = result[e.pos];
+      first.conflicts = first.conflicts || [first.kind === 'folder' ? fname(first.id) : first.it.name];
+      first.conflicts.push(e.kind === 'folder' ? fname(e.id) : e.it.name);
+    } else result[e.pos] = e;
+  });
   return result;
 }
 
@@ -76,6 +83,8 @@ function badgeTile(it, px) {
 
 function spatialTile(cell, folder, pos, px) {
   if (!cell) return emptyTile(folder, pos, px);
+  if (cell.conflicts) return `<div class="item conflict-cell" role="alert" data-key="conflict-${folder}-${pos}">
+    <b>Cell ${pos + 1}: conflicting positions</b>${cell.conflicts.map(name => `<span>${esc(name)}</span>`).join('')}</div>`;
   if (cell.kind === "badge") return badgeTile(cell.it, px);
   return cell.kind === "game" ? tileHtml(cell.it, px) : cell.kind === "system"
     ? systemTileHtml(cell.it, px) : folderTileHtml(cell.id, px);
@@ -99,7 +108,7 @@ function spatialFolderGrid(folder, px) {
 // Toolbar order (owner decision): container dropdown, Badges (gold), Decorate folder
 // (rose), Compact games; the empty-page control sits at the far right.
 function spatialControls(folder) {
-  const pages = pageInfo(folder), gaps = gapCount(folder), busy = !!S.recovery;
+  const pages = pageInfo(folder), gaps = gapCount(folder), busy = !!S.recovery || !!S.layoutErrors?.length;
   const decorTitle = !S.badges?.writable ? 'Import a HOME menu dump to edit folder icons' : 'Pick a badge as a folder icon';
   return `<div class="spatial-controls">
     <select id="folderNavigation" aria-label="Open container"><option value="-1">Home grid</option>${folderIds().map(fid => `<option value="${fid}" ${folder === fid ? 'selected' : ''}>${esc(fname(fid))}</option>`).join('')}</select>
@@ -112,7 +121,7 @@ function spatialControls(folder) {
       <span id="slotsMore" class="${pages.shown >= pages.max ? 'off' : ''}" title="Show one more page of empty cells">+</span>
     </div>
     ${S.badges?.error ? `<div class="layout-error" role="alert">${esc(S.badges.error)}</div>` : ''}
-    ${S.layoutErrors?.length ? `<div class="layout-error" role="alert">Resolve these positions before writing:<br>${S.layoutErrors.map(esc).join('<br>')}</div>` : ''}
+    ${S.layoutErrors?.length ? `<div class="layout-error" role="alert"><b>The imported layouts disagree. The grid and preview may not match your console.</b><br>Do not rearrange or compact to fix this. Run 3DSort_dump in GodMode9, power off without opening HOME, then use SYNC → ${BTN_IMPORT}. If an injection is pending, finish and verify it first.<br><details><summary>Position conflicts (technical details)</summary>${S.layoutErrors.map(esc).join('<br>')}</details></div>` : ''}
     ${S.recovery ? '<div class="layout-error" role="alert">An interrupted write needs recovery in SYNC.</div>' : ''}
   </div>`;
 }
@@ -302,6 +311,7 @@ function bindSpatial() {
     const modal = document.getElementById('modal');
     if (modal.querySelector('#modalBg')) modal.innerHTML = '';
     else if (B.open) { B.open = false; B.selected = null; render(); }
+    else if (P.selectedKeys.length) { P.selectedKeys = []; P.selectionAnchor = null; P.selected = null; render(); }
   };
   loadBadgeImages();
 }
