@@ -134,7 +134,7 @@ in a third archive, where only the placement table is rewritten.
 
 ## Status
 
-Stable for daily use, still labeled beta. The full cycle (write, NAND inject,
+Stable for daily use. The full cycle (write, NAND inject,
 restore) is validated on two USA New 3DS consoles, on a New 2DS XL from macOS,
 and on a JPN-to-USA region-changed console.
 
