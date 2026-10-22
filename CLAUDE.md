@@ -1,7 +1,7 @@
 # CLAUDE.md — 3DSort
 
 Static context for AI-assisted development. Read before any change.
-Last revised: 2026-09-30. Full change history: git log of this file.
+Last revised: 2026-10-22. Full change history: git log of this file.
 
 **v1.2.0 (2026-09-07):** exact positions and the badge collection shipped.
 Section 12 supersedes the older compaction and badge-deferral statements
@@ -18,11 +18,11 @@ cancel drags (§7).
 by the gamecode in the tid (§6). Confirmed on hardware by the reporter (a
 Reddit user, no GitHub issue) with the test2 build.
 
-**pr-6 (2026-10-22, unreleased; PR #6 by @krazykuzon-hue, ported from the
-source in their zip):** multi-select (Shift/Ctrl-click, group drag,
+**v1.3.0 (2026-10-22; PR #6 by @krazykuzon-hue, ported from the source in
+their zip):** multi-select (Shift/Ctrl-click, group drag,
 `move_games`, §6/§7) and the regional dump cache fix (§5.8): after an inject
 the pre-inject `homemenu_save_<saveid>.bin` was promoted back over the
-payload on the next import. Needs a hardware inject cycle before release.
+payload on the next import. Validated by the owner before release.
 
 ## 1. What the project is
 
@@ -760,11 +760,12 @@ SD + a Playwright step if it has a UI gesture.
 
 ## 10. Current state and roadmap
 
-**Shipped: v1.2.3** (0x2CB0 SaveData.dat, DSiWare sorted with the games,
+**Shipped: v1.3.0** (multi-select + regional dump cache fix, PR #6,
+2026-10-22; v1.2.3 0x2CB0 SaveData.dat, DSiWare sorted with the games,
 2026-09-30; v1.2.2 issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
 2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-251 tests. Version lives in `VERSION` in ui/app.js (single source). README
+273 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 
