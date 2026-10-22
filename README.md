@@ -254,3 +254,7 @@ carries the same license.
 - [@ratatabananana-bit](https://github.com/ratatabananana-bit) diagnosed and
   fixed HOME menu selection on region-changed (CTRTransfer) consoles, and
   validated the write/inject cycle on one
+
+## Support
+
+If 3DSort saved you an afternoon of dragging icons around, you can [buy me a coffee on Ko-fi](https://ko-fi.com/salustlab).
