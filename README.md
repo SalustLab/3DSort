@@ -25,11 +25,6 @@
 
 </div>
 
-> [!NOTE]
-> **Built with AI assistance.** Much of this code was written with Claude. The
-> 3DS file formats were reverse engineered against real dumps, and every write
-> path was validated on real consoles before release.
-
 Organizing icons on the console is one stylus drag at a time. 3DSort edits the
 layout on the SD card instead: put the card in your computer, drag games,
 folders and badges around with a live preview of the console screen, then write
