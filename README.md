@@ -6,12 +6,22 @@
 
 **Rearrange your Nintendo 3DS HOME menu from your PC.**
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4a3f35?style=flat-square)](#running-from-source)
-[![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square&logo=python&logoColor=white)](#running-from-source)
-[![Tests](https://img.shields.io/badge/tests-269%20passing-7ac70c?style=flat-square)](#tests)
-[![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40?style=flat-square)](#status)
-[![License](https://img.shields.io/badge/license-GPL--3.0-blue?style=flat-square)](LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.3.0-d31e40?style=flat-square)](#status)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4a3f35)](#running-from-source)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](#running-from-source)
+[![Tests](https://img.shields.io/badge/tests-269%20passing-7ac70c)](#tests)
+[![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40)](#status)
+[![License](https://img.shields.io/github/license/SalustLab/3DSort?color=blue)](LICENSE)
+[![Latest release](https://img.shields.io/github/v/release/SalustLab/3DSort?label=release&color=d31e40)](https://github.com/SalustLab/3DSort/releases/latest)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5e5b?logo=ko-fi&logoColor=white)](https://ko-fi.com/salustlab)
+
+**[Download](https://github.com/SalustLab/3DSort/releases/latest)** ·
+[What it does](#what-it-does) ·
+[What you need](#what-you-need) ·
+[Writing to the card](#writing-to-the-card) ·
+[Troubleshooting](#troubleshooting) ·
+[Running from source](#running-from-source) ·
+[How it works](#how-it-works) ·
+[Support](#support)
 
 </div>
 
@@ -164,3 +174,5 @@ whose bulk unwrap mechanism 3DSort reimplements.
 ## Support
 
 If 3DSort saved you an afternoon of dragging icons around, you can [buy me a coffee on Ko-fi](https://ko-fi.com/salustlab).
+
+<a href="https://ko-fi.com/salustlab"><img src="https://ko-fi.com/img/githubbutton_sm.svg" alt="Support me on Ko-fi"></a>
