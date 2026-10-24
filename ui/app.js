@@ -561,12 +561,13 @@ function syncScreen() {
           1. Put the SD card back in the console and boot GodMode9.<br>
           2. Run the script 3DSort_inject (HOME button, then Scripts...).<br>
           3. Do NOT boot the HOME menu before the script finishes.<br>
-          4. Put the SD card back in the PC and press ${esc(BTN_VERIFY_INJECT)}.
+          4. Put the SD card back in the PC and press ${esc(BTN_VERIFY_INJECT)}.<br>
+          If 3DSort_inject stopped with "sha does not match", nothing was written: run 3DSort_dump again, then press ${esc(BTN_CANCEL_INJECT)}.
         </div>
         <div style="display:flex;gap:10px">
           <div class="btn primary" id="verifyInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px">${esc(BTN_VERIFY_INJECT)}</div>
           <div class="btn" id="confirmInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px" title="Skip verification. Only if you are sure the script ran">Mark as done</div>
-          <div class="btn" id="cancelInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px;margin-left:auto" title="Discard the pending system changes">Cancel inject</div>
+          <div class="btn" id="cancelInjectBtn" style="padding:8px 16px;font-size:12.5px;border-radius:9px;margin-left:auto" title="Discard the pending system changes">${esc(BTN_CANCEL_INJECT)}</div>
         </div>
       </div>` : ""}
       <div style="font-weight:900;font-size:17px;margin-bottom:4px">History</div>
@@ -584,6 +585,7 @@ const VERSION = "v1.3.0";
 
 const BTN_IMPORT = "Import layout from SD";
 const BTN_VERIFY_INJECT = "Verify";
+const BTN_CANCEL_INJECT = "Cancel inject";
 const BTN_WIZ_VERIFY = "I RAN IT, VERIFY";
 
 const GM9_ENTER = "Power the console off. Hold START while turning it on. That boots GodMode9 instead of the HOME menu.";
@@ -606,7 +608,7 @@ const INSTRUCTION_PAGES = [
   { title: "The inject script (3DSort_inject)",
     body: "Moving system apps, folders or the Game Card tile changes the console NAND, which this app never touches directly. Writing publishes a payload to the SD card and the SYNC tab shows a pending banner. Run 3DSort_inject in GodMode9 to apply it.<br><br>The script checks three things before writing: the payload is intact, the console NAND still matches the dump, and the copy is bit perfect. If any check fails the script aborts and nothing is written.<br><br>Do not boot the HOME menu between writing on the PC and running the inject. Booting it changes the NAND and the second check aborts on purpose." },
   { title: "If something goes wrong",
-    body: `<b>movable.sed does not match this SD card</b>: if this console has never used this card, boot the HOME menu once with the card inserted so the console creates its data folder, then press ${BTN_IMPORT} on the SYNC tab. Otherwise the keys are from an older console state: run 3DSort_dump again and import.<br><br><b>The system apps are not draggable</b>: the card has no HOME menu save dumped for this console yet. Run 3DSort_dump on the console it belongs to, then press ${BTN_IMPORT} on the SYNC tab.<br><br><b>The inject aborted</b>: nothing was harmed. Run 3DSort_dump again, press ${BTN_IMPORT} on the SYNC tab, redo the system changes (or restore the auto backup from the SYNC tab) and write again.<br><br><b>A title still looks gift wrapped</b>: that is console side state. Open it once and it goes away.` },
+    body: `<b>movable.sed does not match this SD card</b>: if this console has never used this card, boot the HOME menu once with the card inserted so the console creates its data folder, then press ${BTN_IMPORT} on the SYNC tab. Otherwise the keys are from an older console state: run 3DSort_dump again and import.<br><br><b>The system apps are not draggable</b>: the card has no HOME menu save dumped for this console yet. Run 3DSort_dump on the console it belongs to, then press ${BTN_IMPORT} on the SYNC tab.<br><br><b>The inject aborted with "sha does not match"</b>: the HOME menu booted after the dump, and nothing was written to the console. A new dump is ignored while an inject is pending, so: enter GodMode9 directly and run 3DSort_dump again, then on the SYNC tab press ${BTN_CANCEL_INJECT} (it imports the new dump), restore the auto backup taken before that write, redo the system changes and write again. Run 3DSort_inject without letting the HOME menu load.<br><br><b>A title still looks gift wrapped</b>: that is console side state. Open it once and it goes away.` },
 ];
 
 const insCard = (title, body) => `<div class="card" style="display:flex;flex-direction:column;gap:7px">

@@ -114,3 +114,33 @@ def test_new_console_dump_after_injection_is_not_replaced():
     result = api.verify_inject()
     assert next(i for i in result['system'] if i['key'] == 'cart')['pos'] == 70
     assert regional.read_bytes() == fresh.serialize()
+
+
+def test_gate2_abort_recovers_through_cancel_inject():
+    """Reddit report 2026-10-24: the HOME menu booted between dump and inject,
+    so GM9 gate 2 aborted. A new dump is ignored while the inject is pending
+    (the gate 2 anchor must not move under a published payload), so the way
+    out is Cancel inject: the next import then adopts the fresh dump."""
+    api, sd3, regional = setup()
+    api.swap_items('g:0', 'n:0')
+    assert 'error' not in api.write_sd()
+    stale = (sd3 / 'homemenu_save.bin.sha').read_bytes()
+    from core.launcher import Launcher
+    drifted = Launcher(regional.read_bytes())
+    drifted.set_cart_pos(70)  # stands in for the bytes a HOME boot changes
+    regional.write_bytes(drifted.serialize())
+    fresh = hashlib.sha256(regional.read_bytes()).digest()
+    Path(str(regional) + '.sha').write_bytes(fresh)
+    api.import_sd()
+    assert (sd3 / 'homemenu_save.bin.sha').read_bytes() == stale
+    st = api.cancel_inject()
+    assert 'error' not in st and st['pendingInject'] is None
+    assert (sd3 / 'homemenu_save.bin.sha').read_bytes() == fresh
+    # the SD half was written, the NAND half was not: the game and the system
+    # app now share a cell until the pre-write auto backup is restored
+    assert st['layoutErrors']
+    auto = next(e for e in st['history'] if e.get('kind') == 'auto')
+    assert not api.restore_backup(auto['id'])['layoutErrors']
+    api.swap_items('n:0', 'f:0')  # a launcher change: needs the anchor
+    assert 'error' not in api.write_sd()
+    assert (sd3 / 'homemenu_save.bin.sha').read_bytes() == fresh

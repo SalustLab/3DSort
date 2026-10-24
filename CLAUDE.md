@@ -153,7 +153,7 @@ wins without overwriting the file).
 ## 4. How to run
 
 ```powershell
-# tests (273; real integration skipped without sandbox/keys; the real-SD guard
+# tests (275; real integration skipped without sandbox/keys; the real-SD guard
 # keeps a baseline PER id0 FOLDER. WARNING: a LEGITIMATE app write also trips
 # it — check extdata timestamps vs backups' history.jsonl, then re-register)
 python -m pytest tests -q
@@ -452,6 +452,19 @@ are staged changes (entity keys, §6); the write generates an injection payload
   between; bit-perfect copy) + `fixcmac` + an `inject_done.sha` receipt. The
   app confirms the receipt on the next import and promotes the payload to
   current dump.
+- **GATE 2 ABORT RECOVERY GOES THROUGH CANCEL** (Reddit report 2026-10-24):
+  GM9 `line 7: sha does not match` = gate 2, the HOME menu booted after the
+  dump; nothing reached the NAND, but the SD half is written (a game and a
+  system app can now share a cell, `layoutErrors`). While the inject is
+  pending a re-dump is IGNORED (`_find_container` returns the payload, the
+  anchor never moves) and a rewrite republishes against the stale anchor, so
+  retrying loops forever. The way out, in this order: fresh `3DSort_dump`
+  (enter GM9 directly) → `cancel_inject` (its import adopts the new dump) →
+  restore the pre-write auto backup → redo → write → inject. Guarded by
+  `test_gate2_abort_recovers_through_cancel_inject` and
+  `test_inject_abort_recovery_names_cancel_inject`. Auto-cancel on a fresh
+  dump was rejected: a dump after a SUCCESSFUL inject also differs from the
+  payload (`fixcmac`), so it could discard a real inject.
 - **THE INJECT SCRIPT NEVER OUTLIVES THE PAYLOAD**: an orphan
   `3DSort_inject.gm9` aborts at GATE 1 (payload missing) — on-console it looks
   like "the write broke". `_promote_payload` calls `_delete_inject_script()`
@@ -765,7 +778,7 @@ SD + a Playwright step if it has a UI gesture.
 2026-09-30; v1.2.2 issue #4: Linux/WebKitGTK and missing-WebView2 fixes,
 2026-09-28; v1.2.1 region-changed console support, 2026-09-21; v1.2.0 badges +
 exact positions, 2026-09-07), public repo `github.com/SalustLab/3DSort`, GPL-3.0,
-273 tests. Version lives in `VERSION` in ui/app.js (single source). README
+275 tests. Version lives in `VERSION` in ui/app.js (single source). README
 screenshots come from `--mock` (§3.4: real libraries leak console data), except
 the two v1.2.0 badge shots the owner captured on their own card.
 

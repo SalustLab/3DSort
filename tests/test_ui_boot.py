@@ -286,3 +286,13 @@ def test_instruction_text_names_buttons_by_const():
     pages = region("const INSTRUCTION_PAGES = [", "];")
     assert "press Import from SD" not in pages
     assert "${BTN_IMPORT}" in pages
+
+
+def test_inject_abort_recovery_names_cancel_inject():
+    """A re-dump is ignored while an inject is pending (Reddit report
+    2026-10-24): the gate 2 recovery must send the user through Cancel inject,
+    quoted by const so the prose and the button never drift."""
+    assert 'const BTN_CANCEL_INJECT = "Cancel inject"' in APP_JS
+    pages = region("const INSTRUCTION_PAGES = [", "];")
+    assert "sha does not match" in pages and "${BTN_CANCEL_INJECT}" in pages
+    assert ">${esc(BTN_CANCEL_INJECT)}</div>" in APP_JS
