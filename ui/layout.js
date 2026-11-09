@@ -262,6 +262,11 @@ function bindSpatial() {
   const showPages = n => { const f = currentContainer(), p = pageInfo(f); B.shown[f] = Math.min(capacityOf(f), Math.max(p.min, n) * p.per); render(); };
   on('slotsMore', () => showPages(pageInfo(currentContainer()).shown + 1));
   on('slotsLess', () => showPages(pageInfo(currentContainer()).shown - 1));
+  if (S.banks?.readOnly) {
+    document.querySelectorAll('[draggable]').forEach(el => el.draggable = false);
+    document.querySelectorAll('#compactGames,#decorateFolder').forEach(el => {el.setAttribute('aria-disabled','true'); el.onclick = () => toast('Inactive bank is read-only');});
+    return;
+  }
   on('compactGames', () => compactConfirm(currentContainer()));
   on('decorateFolder', () => decorateModal(P.openFolder === null ? null : P.openFolder));
   const search = document.getElementById('badgeSearchForm');

@@ -18,7 +18,9 @@ const savePrefs = () => store && store.setItem("prefs", JSON.stringify({
   sortMode: P.sortMode, themeId: P.themeId }));
 
 // raw result, {error} included: for callers that show the message themselves
+const bankMutations = new Set(['move_to_position','swap_items','move_games','move_item','set_folder','sort_preset','compact_games','place_badge','place_badge_in_folder','remove_badge','decorate_folder','folder_create','folder_rename','folder_empty','folder_delete','undo','redo','reset_staging','backup_manual','restore_backup','write_sd','recover_write','verify_inject','confirm_inject','cancel_inject']);
 async function callRaw(name, args = []) {
+  if (S?.banks?.readOnly && bankMutations.has(name)) return {error: 'Inactive bank is read-only. Select the active bank to edit.'};
   if (window.pywebview && window.pywebview.api) {
     try { return await window.pywebview.api[name](...args); }
     catch (e) { return { error: String((e && e.message) || e) }; }
@@ -61,7 +63,7 @@ const folderMembers = id => [
   ...folderItems(id).map(i => ({ kind: "game", it: i })),
   ...systemInFolder(id).map(s => ({ kind: "system", it: s }))
 ].sort((a, b) => a.it.pos - b.it.pos);
-const fname = id => (S.folderNames && S.folderNames[id]) || `Folder ${id + 1}`;
+const fname = id => S.banks?.readOnly ? `Unknown folder ${id + 1}` : (S.folderNames && S.folderNames[id]) || `Folder ${id + 1}`;
 const finitial = id => (fname(id).trim()[0] || "?").toUpperCase();
 // home grid sequence as shown on the console: games + NAND apps (pinned) + folders, by position
 const homeSeq = () => containerSequence(-1);
@@ -212,6 +214,28 @@ function renderTop() {
   document.getElementById("sdinfo").textContent =
     sd.free_blocks != null ? `SD: ${sd.free_blocks} BLOCKS FREE`
     : sd.region ? `SD ${sd.root || ""} · ${sd.region}` : "SD NOT FOUND";
+
+  document.getElementById('bankStatus')?.remove();
+  if (S.banks?.detected) {
+    const status = document.createElement('div');
+    status.id = 'bankStatus';
+    status.innerHTML = `<label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)} - ${b.active ? 'Active' : 'Inactive'}</option>`).join('')}</select></label>
+      <span role="status">${S.banks.readOnly ? 'Read-only. Partial SD layout: NAND, badges and folder HOME positions are unknown.' : 'Viewing the active directory.'} Selection does not switch the console bank.</span>
+      ${S.banks.readOnly ? folderIds().map(id => `<button data-bank-folder="${id}">Unknown folder ${id + 1}</button>`).join('') : ''}
+      <small>${S.banks.warnings.map(esc).join(' ')}</small>`;
+    document.getElementById('sdinfo').after(status);
+    status.querySelectorAll('[data-bank-folder]').forEach(el => el.onclick = () => {P.openFolder = +el.dataset.bankFolder; P.tab = 'GRID'; render();});
+    status.querySelector('select').onchange = async e => {
+      e.target.disabled = true;
+      status.querySelector('[role=status]').textContent = 'Loading bank...';
+      const id = e.target.value;
+      let result = await callRaw('select_bank', [id]);
+      if (result.needsConfirm && window.confirm(result.error)) result = await callRaw('select_bank', [id, true]);
+      if (result.error) toast(result.error);
+      else { S = result; P.openFolder = null; P.page = 1; P.selected = null; P.selectedKeys = []; P.dragKeys = []; P.dragKey = null; }
+      render();
+    };
+  }
 }
 
 function iconHtml(it, px) {
@@ -722,6 +746,13 @@ function postWriteWarning() {
 
 // ---- events -------------------------------------------------------------------
 function bind() {
+  if (S.banks?.readOnly) {
+    document.querySelectorAll('#writeBtn,#undoBtn,#redoBtn,#newFolderBtn,#sortChip,#backupBtn,[data-restore]').forEach(el => {
+      el.setAttribute('aria-disabled', 'true');
+      el.style.opacity = '.45';
+      el.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); toast('Inactive bank is read-only'); }, {capture:true});
+    });
+  }
   const $ = id => document.getElementById(id);
   document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty()) { if (!window.confirm("Leave unsaved preset changes?")) return; ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
   $("gearBtn").onclick = () => { P.tab = "SETTINGS"; render(); };
