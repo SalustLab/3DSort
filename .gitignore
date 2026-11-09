@@ -33,3 +33,6 @@ __pycache__/
 # Locally built native helper (Linux/macOS, tools/build_save3ds_macos.sh).
 # Compiled binaries never enter the repo; only the official wwylele release exe.
 tools/save3ds/save3ds_fuse
+
+# Local browser test dependencies
+node_modules/

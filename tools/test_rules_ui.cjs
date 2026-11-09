@@ -1,0 +1,75 @@
+// Synthetic SD only. Exercises real preset APIs and resulting layout order.
+const {chromium} = require('playwright');
+const {spawn} = require('node:child_process');
+const assert = require('node:assert/strict');
+const path = require('node:path');
+(async () => {
+  const root = path.resolve(__dirname, '..'), port = 8397, base = `http://127.0.0.1:${port}`;
+  const server = spawn(process.env.PYTHON || 'python', ['app.py','--serve','--mock','--mock-badges',String(port)], {cwd:root,windowsHide:true});
+  let browser;
+  try {
+    let ready=false;
+    for(let i=0;i<100;i++) { try {ready=(await fetch(base)).ok;} catch {} if(ready) break; await new Promise(r=>setTimeout(r,100)); }
+    assert(ready);
+    browser=await chromium.launch({headless:true});
+    const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
+    page.on('pageerror',e=>errors.push(e.message));
+    page.on('dialog',d=>d.accept());
+    const api=async(name,args=[]) => { const r=await(await page.request.post(base+'/api/'+name,{data:{args}})).json(); assert(!r.error,r.error); return r; };
+    const act=async(name,fn) => {const waiting=page.waitForResponse(r=>r.url()===base+'/api/'+name);await fn();const result=await(await waiting).json();assert(!result.error,result.error);return result;};
+    const order=s=>s.items.filter(i=>i.folder===-1).sort((a,b)=>a.pos-b.pos).map(i=>i.key);
+    await page.goto(base);await page.locator('#grid').waitFor();
+    await page.locator('[data-tab="RULES"]').click();
+    await page.locator('[data-select-preset="az"]').click();
+    assert(await page.locator('#sortPresetName').isDisabled());
+    assert.equal(await page.locator('#deleteSortPreset').count(),0);
+    await page.locator('#duplicateSortPreset').click();
+    await page.locator('#sortPresetName').fill('Built-in copy');
+    await act('save_sort_preset',()=>page.locator('#saveSortPreset').click());
+    await act('delete_sort_preset',()=>page.locator('#deleteSortPreset').click());
+    await page.locator('#newSortPreset').click();
+    await page.locator('#sortPresetName').fill('My order');
+    await page.locator('[data-direction="0"]').selectOption('desc');
+    await page.locator('#addSortCriterion').click();
+    await page.locator('[data-criterion="1"]').selectOption('release_date');
+    await page.locator('[data-rule-up="1"]').click();
+    assert.equal(await page.locator('[data-criterion="0"]').inputValue(),'release_date');
+    let library=await act('save_sort_preset',()=>page.locator('#saveSortPreset').click());
+    let preset=library.presets.find(p=>p.name==='My order');
+    assert.deepEqual(preset.criteria,[{field:'release_date',direction:'asc'},{field:'internal_title',direction:'desc'}]);
+    await page.locator('#sortPresetName').fill('Edited order');
+    await act('save_sort_preset',()=>page.locator('#saveSortPreset').click());
+    await page.screenshot({path:path.join(root,'docs/images/rules.png')});
+    // Switch to an unambiguous name-only order for exact visual assertions.
+    await page.locator('[data-rule-remove="0"]').click();
+    await act('save_sort_preset',()=>page.locator('#saveSortPreset').click());
+    const before=await api('get_state');
+    const expected=before.items.filter(i=>i.folder===-1).sort((a,b)=>a.name.toLowerCase()<b.name.toLowerCase()?1:a.name.toLowerCase()>b.name.toLowerCase()?-1:0).map(i=>i.key);
+    let after=await act('sort_preset',()=>page.locator('#applySortPreset').click());
+    assert.deepEqual(order(after),expected);
+    await page.locator('[data-tab="GRID"]').click();await page.locator('#grid').waitFor();
+    assert.deepEqual(await page.locator('#grid [data-ekey^="g:"]').evaluateAll(els=>els.map(e=>({key:e.dataset.ekey,x:e.offsetLeft,y:e.offsetTop})).sort((a,b)=>a.x-b.x || a.y-b.y).map(e=>e.key)),expected);
+    const undone=await act('undo',()=>page.locator('#undoBtn').click());assert.deepEqual(order(undone),order(before));
+    const redone=await act('redo',()=>page.locator('#redoBtn').click());assert.deepEqual(order(redone),expected);
+    await page.reload();await page.locator('#grid').waitFor();
+    await page.locator('#sortChip').click();
+    await act('sort_preset',()=>page.locator(`[data-preset="${preset.id}"]`).click());
+    await api('set_folder',['g:0',0]);await api('set_folder',['g:1',0]);
+    await page.reload();await page.locator('#grid').waitFor();
+    await page.locator('#folderNavigation').selectOption('0');
+    await page.locator('#sortChip').click();
+    const folderResult=await act('sort_preset',()=>page.locator(`[data-preset="${preset.id}"]`).click());
+    const folderItems=folderResult.items.filter(i=>i.folder===0).sort((a,b)=>a.pos-b.pos);
+    assert.deepEqual(folderItems.map(i=>i.name.toLowerCase()),folderItems.map(i=>i.name.toLowerCase()).sort().reverse());
+    await page.locator('[data-tab="RULES"]').click();
+    await page.locator(`[data-select-preset="${preset.id}"]`).click();
+    assert.equal(await page.locator('#sortPresetName').inputValue(),'Edited order');
+    await page.locator('#sortPresetScope').selectOption('0');
+    const scoped=await act('sort_preset',()=>page.locator('#applySortPreset').click());
+    assert.deepEqual(scoped.items.filter(i=>i.folder===0).sort((a,b)=>a.pos-b.pos).map(i=>i.key),folderItems.map(i=>i.key));
+    await act('delete_sort_preset',()=>page.locator('#deleteSortPreset').click());
+    assert(!(await api('list_sort_presets')).presets.some(p=>p.id===preset.id));
+    assert.deepEqual(errors,[]);
+    console.log('RULES UI checks passed');
+  } finally {if(browser) await browser.close();server.kill();}
+})().catch(e=>{console.error(e);process.exitCode=1;});

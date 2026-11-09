@@ -43,6 +43,9 @@ for Linux. No installer, no Python.
 - Select many titles at once (Shift-click a range, Ctrl-click or Cmd-click to
   add) and move them together onto a title, an empty cell or a folder
 - Sort globally or inside an individual folder: A to Z, Z to A or by release date, DSiWare and NDS forwarders included
+- Build reusable sorting presets in **RULES**: prioritize internal title, offline
+  commercial title, and release date with independent directions. Apply globally
+  or to one folder from RULES or GRID. [Sorting guide](docs/SORT_PRESETS.md)
 - Create, rename and delete folders, and give them a badge as icon
 - Place the badges from your collection on the grid (3DSort does not install
   badges; tools like [GYTB](https://wiki.hacks.guide/wiki/3DS:GYTB) do)
