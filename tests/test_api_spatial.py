@@ -560,14 +560,29 @@ def test_failed_preparation_never_imports_to_sd(badge_api, monkeypatch):
     assert api.get_state()["recovery"] is None
 
 
-@pytest.mark.parametrize("preset", ["az", "za", "date_asc", "date_desc"])
-def test_folder_sort_isolated(preset):
+@pytest.mark.parametrize("preset,expected", [
+    ("az", [1, 2, 0]),
+    ("za", [0, 2, 1]),
+    ("date_asc", [2, 0, 1]),
+    ("date_desc", [0, 2, 1]),
+])
+def test_folder_sort_isolated(preset, expected, monkeypatch):
     api = build_api(mock=True)
     api.get_state()
     api.set_folder("g:0", 0)
     api.set_folder("g:1", 0)
+    api.set_folder("g:2", 0)
+    for slot, name in enumerate(["Zulu", "Alpha", "Mike"]):
+        api._names[api.staging.state["tids"][slot]] = name
+    from core import titledates
+    monkeypatch.setattr(titledates, "_table", {
+        f'{api.staging.state["tids"][0]:016x}': "2020-01-01",
+        f'{api.staging.state["tids"][2]:016x}': "2000-01-01",
+    })
     before = copy.deepcopy(api.staging.state)
     result = api.sort_preset(preset, 4, 0)
+    games = sorted((i for i in result["items"] if i["folder"] == 0), key=lambda i: i["pos"])
+    assert [i["key"] for i in games] == [f"g:{slot}" for slot in expected]
     after = copy.deepcopy(api.staging.state)
     assert after["folders"] == before["folders"]
     for field in ("nand_pos", "nand_folder", "folder_defs", "cart_pos"):
@@ -606,3 +621,37 @@ def test_folder_sort_composite_and_reserved_cells(badge_api):
     assert cells == [cells[0], cells[0]+1, cells[0]+2, cells[0]+3]
     assert 19 not in cells
     assert state["folderRows"][0] == before["folder_defs"][0]["rows"]
+
+
+@pytest.mark.parametrize("preset,expected", [
+    ("az", ["g:1", "n:4", "g:0"]),
+    ("za", ["g:0", "n:4", "g:1"]),
+    ("date_asc", ["n:4", "g:0", "g:1"]),
+    ("date_desc", ["g:0", "n:4", "g:1"]),
+])
+def test_folder_sort_mixed_sd_dsiware(preset, expected, monkeypatch):
+    import app
+    from core import titledates
+    nand = list(app.MOCK_NAND)
+    name, _, pos, folder = nand[4]
+    nand[4] = ("Mike", 0x0004800443415341, pos, folder)
+    monkeypatch.setattr(app, "MOCK_NAND", nand)
+    api = build_api(mock=True)
+    api.get_state()
+    api.set_folder("g:0", 0)
+    api.set_folder("g:1", 0)
+    for slot, name in enumerate(["Zulu", "Alpha"]):
+        api._names[api.staging.state["tids"][slot]] = name
+    monkeypatch.setattr(titledates, "_table", {
+        "CASA": "2000-01-01",
+        f'{api.staging.state["tids"][0]:016x}': "2020-01-01",
+    })
+    before = positions(api.get_state())
+    result = api.sort_preset(preset, 4, 0)
+    members = sorted((i for i in result["items"] + result["system"]
+                      if i["folder"] == 0 and i["key"]), key=lambda i: i["pos"])
+    assert [i["key"] for i in members] == expected
+    after = positions(result)
+    assert {k: v for k, v in before.items() if v[0] != 0} == {
+        k: v for k, v in after.items() if v[0] != 0}
+    assert {k: v[0] for k, v in after.items()} == {k: v[0] for k, v in before.items()}
