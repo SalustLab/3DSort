@@ -3,8 +3,8 @@
 3DSort ships a Linux x86_64 tar.gz built by GitHub Actions on Ubuntu 24.04
 (glibc 2.39 or newer required). This checklist covers validating a release
 build safely. The read path and the write/inject cycle are the same code
-validated on real consoles from Windows and macOS; hardware validation from
-Linux is recorded in the README and CLAUDE.md once completed.
+validated on real consoles from Windows and macOS; new hardware validation should be recorded with provenance in
+[HARDWARE_VALIDATION.md](HARDWARE_VALIDATION.md).
 
 ## Build and UI smoke test
 
@@ -76,3 +76,11 @@ have separately backed up, and follow the INSTRUCTIONS tab in the app.
 
 Never publish console keys, `movable.sed`, `boot9.bin`, HOME saves, or a card
 image. Keep those files local.
+
+## Historical bundle compatibility issue
+
+Original main CLAUDE section 7 reported Debian 13 failing before window creation
+because system WebKit required newer GLib symbols than the Ubuntu 24.04 bundle
+provided (g_variant_builder_init_static). Removing bundled GTK/GLib reportedly
+allowed boot. This remains a historical observation, not a validated packaging
+fix; test native dependencies on each target distro before changing exclusions.

@@ -42,3 +42,30 @@ be identified solely by retail title-ID range.
 Badge formats and empirical evidence remain canonical in
 [BADGES_TESTING](BADGES_TESTING.md); exact-position contracts in
 [SPATIAL_LAYOUT](SPATIAL_LAYOUT.md).
+
+## Console layout and crypto reference
+
+SD content lives under Nintendo 3DS/<id0>/<id1>/extdata/00000000/<region>.
+Extracted HOME trees include user/SaveData.dat, user/Cache.dat, user/CacheD.dat,
+icon and boss/. The extdata numbering is independent of HOME title IDs.
+
+| Region | HOME extdata low ID | NAND system save ID |
+|---|---|---|
+| JPN | 00000082 | 00020082 |
+| USA | 0000008f | 0002008f |
+| EUR | 00000098 | 00020098 |
+| CHN | 000000a1 | 000200a1 |
+| KOR | 000000a9 | 000200a9 |
+| TWN | 000000b1 | 000200b1 |
+
+These constants match core/sdcard.py. CHN/KOR/TWN remain untested on hardware.
+Historical crypto findings: SD uses KeyX 0x34 from boot9 and console-specific
+KeyY from movable.sed. Formats/transfers can change KeyY. Path-relative crypto
+makes an obsolete movable fail despite apparently valid directory structure.
+See WRITE_SAFETY for key validation; never reproduce private console identifiers.
+
+Historical folder behavior: console-created folders appeared at the end with
+one row; the app's default two rows was accepted. Rename changed only the name.
+Deletion orphaned the baptism number before a later HOME session cleared it.
+The mirror at 0xD85 is handled as the low counter byte; behavior at large counter
+values is not established by the historical small-value observations.

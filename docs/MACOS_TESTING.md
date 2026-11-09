@@ -3,8 +3,9 @@
 3DSort runs on Apple Silicon Macs (macOS 14 or later). The read path was
 validated on real hardware in August 2026: the packaged app imported and
 decrypted the HOME layout of a USA New Nintendo 2DS XL from a card mounted at
-`/Volumes/3DS`, showing 68 items with a matching live preview. The write and
-inject cycle has not been hardware-tested from a Mac yet.
+`/Volumes/3DS`, showing 68 items with a matching live preview. The original main CLAUDE.md later recorded a contributor write/inject cycle
+with the v1.1.0 app. This historical report was not reproduced by the current
+audit; see [hardware evidence](HARDWARE_VALIDATION.md).
 
 ## Build and UI smoke test
 
