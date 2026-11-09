@@ -8,14 +8,14 @@ let S = null; // state coming from the backend
 const store = (() => { try { return window.localStorage || null; } catch (e) { return null; } })();
 const P = Object.assign(
   { tab: "GRID", iconSize: "M", viewRows: 4, page: 1, showLabels: true,
-    sortMode: "Manual", themeId: "cosmos" },
+    sortMode: "Manual" },
   JSON.parse((store && store.getItem("prefs")) || "{}"),
   { openFolder: null, selected: null, selectedKeys: [], selectionAnchor: null, selectionFolder: -1, dragKeys: [], sortMenu: false, dragKey: null,
     driveMenu: false, drives: null, guidePage: 1 }
 );
 const savePrefs = () => store && store.setItem("prefs", JSON.stringify({
   tab: P.tab, iconSize: P.iconSize, viewRows: P.viewRows, page: P.page, showLabels: P.showLabels,
-  sortMode: P.sortMode, themeId: P.themeId }));
+  sortMode: P.sortMode }));
 
 // raw result, {error} included: for callers that show the message themselves
 async function callRaw(name, args = []) {
@@ -113,15 +113,50 @@ const dark = h => {
 const PALETTE = ["#e60012", "#7ac70c", "#0aa0d6", "#c9a227", "#3b4cca", "#d31e40", "#2f9e44", "#ff6fa5", "#ffb400", "#8a6d3b", "#ff5e8a", "#4a6fa5"];
 const hashColor = name => PALETTE[[...String(name)].reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
 
-const THEMES = [
-  { id: "cosmos", n: "Cosmos Red", g: ["#ffd98a", "#ffb400", "#e08900"] },
-  { id: "aqua", n: "Aqua Blue", g: ["#7ad0f5", "#00a0e9", "#0077b6"] },
-  { id: "mint", n: "Mint", g: ["#b8f2c9", "#57c46a", "#2f9e44"] },
-  { id: "night", n: "Purple Night", g: ["#7a6fd0", "#4a3f8f", "#1d1b2e"] },
-  { id: "gum", n: "Bubblegum", g: ["#ffd3e2", "#ff9dc0", "#ff6fa5"] },
-  { id: "white", n: "Plain White", g: ["#faf7ee", "#ede8da", "#cfc7b8"] }
-];
-const theme = () => THEMES.find(t => t.id === P.themeId) || THEMES[0];
+let themeLibrary = null, themeDetails = {}, selectedTheme = null, themeLoading = false;
+let themeGeneration = 0, themeObserver = null, selectedThemeDetail = null;
+const pendingThemes = new Set();
+let themeQueueRunning = false;
+async function loadThemes() {
+  const generation = ++themeGeneration;
+  themeLoading = true; themeLibrary = null; themeDetails = {}; selectedTheme = null; selectedThemeDetail = null; pendingThemes.clear(); render();
+  const result = await callRaw("list_themes");
+  if (generation !== themeGeneration) return;
+  themeLibrary = result.error ? { themes: [], message: result.error } : result;
+  themeLoading = false;
+  if (P.tab === "THEMES") render();
+}
+async function loadTheme(id) {
+  if (themeDetails[id]) return;
+  const generation = themeGeneration;
+  themeDetails[id] = { loading: true };
+  const result = await callRaw("get_theme", [id]);
+  if (generation !== themeGeneration) return;
+  themeDetails[id] = result.error ? { name: "Unavailable theme", status: "unsupported", limitations: [result.error] } : result;
+  if (P.tab === "THEMES") render();
+}
+function observeThemes() {
+  if (themeObserver) themeObserver.disconnect();
+  // Only inspect visible cards; serialize requests to avoid flooding the native bridge.
+  if (P.tab !== "THEMES") return;
+  async function drain() {
+    if (themeQueueRunning) return;
+    themeQueueRunning = true;
+    while (pendingThemes.size && P.tab === "THEMES") {
+      const id = pendingThemes.values().next().value; pendingThemes.delete(id);
+      await loadTheme(id);
+    }
+    themeQueueRunning = false;
+  }
+  if (!window.IntersectionObserver) {
+    (themeLibrary?.themes || []).slice(0, 12).forEach(t => pendingThemes.add(t.id)); drain(); return;
+  }
+  themeObserver = new IntersectionObserver(entries => {
+    entries.forEach(e => { if (e.isIntersecting && !themeDetails[e.target.dataset.theme]) pendingThemes.add(e.target.dataset.theme); });
+    drain();
+  });
+  document.querySelectorAll('[data-theme]').forEach(el => themeObserver.observe(el));
+}
 
 let presetLibrary = { presets: [], warning: null };
 let ruleDraft = null, ruleSaved = null, ruleError = "";
@@ -133,11 +168,6 @@ function selectRule(preset) {
   ruleSaved = JSON.parse(JSON.stringify(preset));
   ruleError = ""; render();
 }
-const BADGES = [
-  { m: "★", c: "#ffb400" }, { m: "♥", c: "#ff6fa5" }, { m: "M", c: "#e60012" }, { m: "?", c: "#ffb400" },
-  { m: "▲", c: "#7ac70c" }, { m: "♪", c: "#5a4fcf" }, { m: "✿", c: "#ff7d00" }, { m: "◆", c: "#00a0e9" }
-];
-
 // ---- render ----------------------------------------------------------------
 // FLIP: animates #grid tiles between renders (the innerHTML is replaced whole,
 // so positions are measured before/after by data-key and the delta is animated).
@@ -166,7 +196,7 @@ function playFlip(before) {
 // render() replaces #screen wholesale, so the panes that scroll (.grid and
 // .preview-col, see index.html) are destroyed and rebuilt at scrollTop 0. Every
 // staged change would jump the user back to the top of the grid.
-const SCROLL_PANES = [".grid", ".preview-col", ".badge-panel"];
+const SCROLL_PANES = [".grid", ".preview-col", ".badge-panel", ".themes-screen"];
 
 function captureScroll() {
   return SCROLL_PANES.map(sel => {
@@ -183,9 +213,7 @@ function restoreScroll(tops) {
 }
 
 function render() {
-  if (P.tab === "THEMES") {
-    P.tab = "GRID"; savePrefs(); toast("Coming in a future version");
-  }
+  if (P.tab === "THEMES" && !themeLibrary && !themeLoading) { loadThemes(); return; }
   renderTop();
   const before = captureGrid();
   const tops = captureScroll();
@@ -203,7 +231,7 @@ function render() {
 }
 
 function renderTop() {
-  document.getElementById("tabs").innerHTML = ["GRID", "RULES", "SYNC", "INSTRUCTIONS"].map(t =>
+  document.getElementById("tabs").innerHTML = ["GRID", "RULES", "THEMES", "SYNC", "INSTRUCTIONS"].map(t =>
     `<div class="tab ${P.tab === t ? "on" : ""}" data-tab="${t}">${t}</div>`).join("");
   const n = S.staged.length;
   document.getElementById("writeBtn").textContent = n ? `WRITE (${n}) ▸` : "WRITE ▸";
@@ -303,7 +331,7 @@ function previewCol() {
   }).join("");
   const d = new Date();
   const clock = `${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })} · ${d.toLocaleDateString("en-US", { weekday: "short" })} ${d.getMonth() + 1}/${d.getDate()}`;
-  const [tg1, tg2, tg3] = theme().g;
+  const [tg1, tg2, tg3] = ["#ffd98a", "#ffb400", "#e08900"];
   const n = S.staged.length;
   return `<div class="preview-col">
     <div class="dot" style="font-size:11px;color:var(--mut);letter-spacing:2px;margin-bottom:10px">LIVE PREVIEW</div>
@@ -488,42 +516,38 @@ function bindRules() {
   };
 }
 
-// Static v2 preview — only the LIVE PREVIEW gradient follows the chosen theme.
+const themeBgm = t => t?.bgm == null ? "unknown" : t.bgm ? "present" : "absent";
+function themePicture(t) {
+  return t?.preview ? `<img class="theme-preview" src="${esc(t.preview)}" alt="${esc(t.name)} preview">` : '<div class="theme-no-preview">Preview unavailable</div>';
+}
 function themesScreen() {
-  const cards = THEMES.map(t => `
-    <div data-theme="${t.id}" style="display:flex;flex-direction:column;gap:8px;background:var(--card);border:${t.id === P.themeId ? "2.5px solid var(--red)" : "2px solid var(--line)"};border-radius:12px;padding:10px;box-shadow:0 3px 0 rgba(222,206,186,.5);cursor:pointer">
-      <div style="width:100%;aspect-ratio:5/3;border-radius:4px;background:linear-gradient(160deg,${t.g[0]},${t.g[2]})"></div>
-      <div style="width:72%;align-self:center;aspect-ratio:4/3;border-radius:3px;background:linear-gradient(180deg,#e8e2d2,#d8d0bc);border:1px solid rgba(74,63,53,.12)"></div>
-      <div style="display:flex;align-items:center;justify-content:space-between;gap:4px">
-        <div style="font-size:11.5px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(t.n)}</div>
-        <div class="dot" style="font-size:8px;color:#fff;background:${t.id === P.themeId ? "var(--red)" : "transparent"};border-radius:4px;padding:2px 4px">${t.id === P.themeId ? "IN USE" : ""}</div>
-      </div>
-    </div>`).join("");
-  const badges = BADGES.map(b => `
-    <div style="width:52px;height:52px;border-radius:10px;background:var(--card);border:2px solid var(--line);display:grid;place-items:center;box-shadow:0 3px 0 rgba(222,206,186,.5);cursor:grab">
-      <div style="width:34px;height:34px;border-radius:8px;background:${b.c};display:grid;place-items:center;color:#fff;font-weight:900;font-size:16px;box-shadow:inset 0 -5px 8px rgba(0,0,0,.2)">${b.m}</div>
-    </div>`).join("");
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:20px 26px;gap:16px;max-width:940px;overflow:auto">
-    <div>
-      <div style="font-weight:900;font-size:17px">Themes</div>
-      <div style="font-size:12.5px;color:var(--mut);font-weight:600">themes installed on the SD card. The live preview follows your pick</div>
-    </div>
-    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:14px">${cards}</div>
-    <div style="border-top:1px solid var(--line);padding-top:16px">
-      <div style="display:flex;align-items:baseline;gap:10px">
-        <div style="font-weight:900;font-size:17px">Badges · 24 owned</div>
-        <div style="font-size:12.5px;color:var(--mut);font-weight:600">badges take up home-grid slots. Drag them straight into the grid</div>
-      </div>
-      <div style="display:flex;gap:12px;margin-top:14px">
-        ${badges}
-        <div style="width:52px;height:52px;border-radius:10px;border:2px dashed var(--line2);display:grid;place-items:center;color:#cbb694;font-size:12px;font-weight:800">+16</div>
-      </div>
-    </div>
-    <div style="margin-top:auto;display:flex;align-items:center;gap:10px;background:#faecd4;border:1px solid var(--line2);border-radius:12px;padding:12px 18px;font-size:12.5px;font-weight:700;color:#7a6a58">
-      <span class="dot" style="font-size:12px;color:var(--mut2)">NOTE</span>
-      3DSort can't install new themes or badges. It arranges the ones already on your card.
-    </div>
-  </div>`;
+  const library = themeLibrary || { themes: [], message: themeLoading ? "Loading theme library..." : "Open the library to scan SD:/Themes/." };
+  const detail = selectedThemeDetail;
+  const cards = library.themes.map(t => {
+    const d = themeDetails[t.id];
+    return `<button class="theme-card ${selectedTheme === t.id ? "chosen" : ""}" data-theme="${t.id}">
+      ${themePicture(d)}<strong>${esc(d?.name || t.name)}</strong>
+      ${d?.author ? `<span>${esc(d.author)}</span>` : ""}<span>${esc(t.source)}</span>
+      <span>${d && !d.loading ? `BGM: ${themeBgm(d)} · ${esc(d.status)}` : "Inspecting package..."}</span>
+    </button>`;
+  }).join("");
+  const screens = t => Object.entries(t?.screens || {}).map(([screen, src]) => `<figure><figcaption>${esc(screen)} background artwork</figcaption><img class="theme-artwork" src="${esc(src)}" alt="${esc(screen)} background artwork"></figure>`).join("");
+  return `<section class="themes-screen">
+    <div><h2>Themes</h2><p>Read-only browsing. Previewing does not install a theme or stage changes.</p>
+    <button class="chipbtn" id="refreshThemes" ${themeLoading ? "disabled" : ""}>Refresh library</button></div>
+    <section class="card" id="themeCurrent"><h3>Current theme / cache</h3><p>${esc(library.current?.message || "Current theme identity unknown.")}</p>
+    <button class="chipbtn" id="inspectThemeCache">Inspect selected console cache</button>
+    ${library.current?.bodySize !== undefined ? `<p>Cached body: ${library.current.bodySize} bytes · Cached BGM: ${library.current.bgmSize} bytes · Declared shuffle cache slots: ${library.current.shuffleSlots}</p>` : ""}
+    ${screens(library.current)}${(library.current?.limitations || []).map(x => `<p>${esc(x)}</p>`).join("")}</section>
+    <p id="themeLibraryMessage">${esc(library.message || "Local packages in SD:/Themes/; presence does not establish console installation.")}</p>
+    <div class="theme-columns"><div class="theme-library">${cards}</div>
+    <section class="card theme-details" id="themeDetails">${detail && !detail.loading ? `<h3>${esc(detail.name)}</h3>${detail.previewSource === "body" ? "" : themePicture(detail)}
+      <p>${esc(detail.author || "Author unavailable")}</p><p>${esc(detail.description || "")}</p>
+      <p>${esc(detail.source || "")} · BGM: ${themeBgm(detail)} · ${esc(detail.status)}</p>
+      ${detail.version ? `<p>LZ11 theme body version ${detail.version} · Body BGM flag: ${detail.bgmEnabled ? "enabled" : "disabled"}</p>` : ""}
+      ${screens(detail)}${(detail.limitations || []).map(x => `<p>${esc(x)}</p>`).join("")}
+      <ul>${(detail.files || []).map(f => `<li>${esc(f.name)}: ${f.size} bytes</li>`).join("")}</ul>` : "Select a package to inspect its metadata and preview."}</section></div>
+  </section>`;
 }
 
 function fmtGB(bytes) { return (bytes / 1e9).toFixed(1); }
@@ -723,7 +747,7 @@ function postWriteWarning() {
 // ---- events -------------------------------------------------------------------
 function bind() {
   const $ = id => document.getElementById(id);
-  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty()) { if (!window.confirm("Leave unsaved preset changes?")) return; ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
+  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty()) { if (!window.confirm("Leave unsaved preset changes?")) return; ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); if (P.tab === "THEMES") loadThemes(); else render(); });
   $("gearBtn").onclick = () => { P.tab = "SETTINGS"; render(); };
   const openWrite = () => {
     if (!S.staged.length) return toast("Nothing staged to write");
@@ -873,10 +897,31 @@ function bind() {
 
   bindRules();
 
-  // THEMES (preview v2)
-  document.querySelectorAll("[data-theme]").forEach(el => el.onclick = () => {
-    P.themeId = el.dataset.theme; savePrefs(); render();
+  document.querySelectorAll("[data-theme]").forEach(el => el.onclick = async () => {
+    const id = el.dataset.theme, generation = themeGeneration;
+    const scrollTop = document.querySelector('.themes-screen').scrollTop;
+    selectedTheme = id; selectedThemeDetail = null; render();
+    const detail = await callRaw("get_theme", [id, true]);
+    if (generation !== themeGeneration || selectedTheme !== id) return;
+    selectedThemeDetail = detail.error ? { name: "Unavailable theme", limitations: [detail.error] } : detail;
+    if (P.tab === "THEMES") {
+      render();
+      document.querySelector('.themes-screen').scrollTop = scrollTop;
+    }
   });
+  const refreshThemes = document.getElementById("refreshThemes");
+  if (refreshThemes) refreshThemes.onclick = loadThemes;
+  const inspectCache = document.getElementById("inspectThemeCache");
+  if (inspectCache) inspectCache.onclick = async () => {
+    const generation = themeGeneration;
+    inspectCache.disabled = true;
+    const result = await callRaw("get_theme_cache");
+    if (generation !== themeGeneration) return;
+    if (themeLibrary) themeLibrary.current = result.error ? { message: result.error } : result;
+    if (P.tab === "THEMES") render();
+  };
+  observeThemes();
+
 
   // SETTINGS
   if ($("setupGuideBtn")) $("setupGuideBtn").onclick = () => renderGuide(1);

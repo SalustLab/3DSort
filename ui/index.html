@@ -110,6 +110,20 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 .rules-criterion strong {background:var(--red); color:white; border-radius:8px;}
 #sortPresetError {color:var(--red);}
 @media(max-width:850px) {.rules-page {flex-direction:column;} .rules-library {width:auto;}}
+
+.themes-screen {flex:1; min-height:0; overflow:auto; padding:20px 26px;}
+.theme-columns {display:grid; grid-template-columns:minmax(300px, 1fr) minmax(300px, 1fr); gap:18px; align-items:start;}
+.theme-library {display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:12px;}
+.theme-card {font:inherit; color:inherit; background:var(--card); border:2px solid var(--line); border-radius:10px; padding:10px; cursor:pointer; display:flex; flex-direction:column; gap:8px; text-align:left; min-width:0;}
+.theme-card.chosen {border-color:var(--red);}
+.theme-card span {font-size:12px;}
+.theme-preview {display:block; width:100%; height:140px; object-fit:contain;}
+.theme-details .theme-preview {height:auto; max-height:480px;}
+.theme-no-preview {display:grid; place-items:center; min-height:110px; background:var(--bg); color:var(--mut);}
+.theme-artwork {display:block; max-width:100%; height:auto;}
+.themes-screen figure {margin:12px 0;}
+.theme-details {overflow-wrap:anywhere;}
+.themes-screen .chipbtn {font:inherit; font-size:12px; padding:7px 12px; border:1px solid var(--line2); border-radius:8px; background:var(--card); color:inherit; cursor:pointer;}
 </style>
 </head>
 <body>
