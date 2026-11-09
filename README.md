@@ -50,6 +50,8 @@ for Linux. No installer, no Python.
 - Place the badges from your collection on the grid (3DSort does not install
   badges; tools like [GYTB](https://wiki.hacks.guide/wiki/3DS:GYTB) do)
 - Live preview of the console screen for every view setting
+- Browse local theme directories and ZIPs in **THEMES**, with metadata and real
+  preview assets. Read-only; no installation or activation. [Theme support](docs/THEMES.md)
 - Undo, redo and reset. Nothing touches the card until you hit WRITE and
   confirm, and every write takes an automatic, restorable backup first
 - Unwraps gift-boxed icons and keeps your HOME menu theme on every write

@@ -13,6 +13,7 @@ Run commands from the repository root:
 - `python app.py --serve --mock --mock-badges`: develop in a browser using synthetic console and badge data.
 - `python -m pytest tests -q`: run the Python suite; tests requiring unavailable console data skip automatically.
 - `node tools/test_spatial_ui.cjs` and `node tools/test_multiselect_ui.cjs`: run headless browser checks; require Playwright and Chromium.
+- `node tools/test_themes_ui.cjs`: check read-only theme browsing with generated packages.
 - `pyinstaller 3DSort.spec`: build the Windows executable; validate with `dist\3DSort.exe --selftest`. Use the platform-specific specs and documentation for macOS/Linux.
 
 ## Coding Style & Naming Conventions
@@ -31,5 +32,8 @@ Recent commits use concise, imperative subjects, sometimes prefixed with a compo
 
 Never commit console keys or personal dumps, including `boot9.bin`, `*.sed`, `essential.exefs`, `Launcher.dat`, or `sandbox/`. Preserve unknown binary bytes, backup-before-write behavior, and write validation when changing save handling.
 ## Technical references
+
+Theme discovery and preview contracts: [THEMES](docs/THEMES.md). Theme browsing
+must remain read-only and preserve `SaveData.graft_tail()` unchanged.
 
 Before modifying binary formats, read [SAVE_FORMATS](docs/SAVE_FORMATS.md). Before SD writes, recovery or NAND injection, read [WRITE_SAFETY](docs/WRITE_SAFETY.md). Before badge changes, read [BADGES_TESTING](docs/BADGES_TESTING.md) and [SPATIAL_LAYOUT](docs/SPATIAL_LAYOUT.md). See [ARCHITECTURE](docs/ARCHITECTURE.md), [SORT_PRESETS](docs/SORT_PRESETS.md), and [HARDWARE_VALIDATION](docs/HARDWARE_VALIDATION.md). Preserve both positional API transports. Documentation and code remain English-only.
