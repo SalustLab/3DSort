@@ -24,6 +24,7 @@ a = Analysis(
     datas=[
         (str(ROOT / "ui"), "ui"),
         (str(ROOT / "core" / "titledates.json.gz"), "core"),
+        (str(ROOT / "core" / "titlenames.json.gz"), "core"),
     ],
     hiddenimports=[],
     hookspath=[],

@@ -4,11 +4,12 @@ import hashlib
 import shutil
 from pathlib import Path
 from collections import Counter
+from functools import cmp_to_key
 
 from core import layout
 from core import badges
 from core.badges import SHAPES
-from core import titledates
+from core import titledates, titlenames
 
 DSIWARE_TID_HIGH = 0x00048004  # TWL titles on the NAND: DSiWare, NDS forwarders (§5.8)
 
@@ -304,8 +305,11 @@ class LayoutApi:
     def sort_preset(self, preset, rows=4, folder=None):
         """Games sorted by name or release date, then selected containers compacted
         (owner decision 2026-09-07: presets leave no gaps and pull stray items in)."""
-        if preset not in ("az", "za", "date_asc", "date_desc"):
+        definition = next((p for p in self.list_sort_presets()["presets"] if p["id"] == preset), None)
+        if definition is None:
             raise ValueError(f"Unknown sort preset: {preset}")
+        if type(rows) is not int or not 1 <= rows <= 6:
+            raise ValueError("Invalid grid rows.")
         st = copy.deepcopy(self.staging.state)
         if folder is not None:
             if type(folder) is not int or not 0 <= folder < 60 or folder not in st["folder_defs"]:
@@ -323,12 +327,31 @@ class LayoutApi:
             dsiware = [("n", s) for s in st["nand_pos"] if self._launcher_writable and
                        st["nand_folder"][s] == folder and st["nand_tids"][s] >> 32 == DSIWARE_TID_HIGH]
             keys = [("g", s) for s in slots] + dsiware
-            if preset in ("az", "za"):
-                ordered = sorted(keys, key=lambda k: self._names.get(tid(k), "").lower(), reverse=preset == "za")
-            else:
-                dates = {k: titledates.release_date(tid(k)) for k in keys}
-                ordered = sorted((k for k in keys if dates[k]), key=dates.get, reverse=preset == "date_desc")
-                ordered += [k for k in keys if not dates[k]]
+            if not definition.get("builtin"):
+                positions_by_key = layout.entities(st)
+                keys.sort(key=lambda k: positions_by_key[k][1])
+            values = {}
+            for k in keys:
+                internal = self._names.get(tid(k), "")
+                values[k] = {
+                    "internal_title": internal.lower(),
+                    "official_title": (titlenames.official_title(tid(k)) or internal or f"{tid(k):016x}").lower(),
+                    "release_date": titledates.release_date(tid(k)),
+                }
+            def compare(a, b):
+                for criterion in definition["criteria"]:
+                    field = criterion["field"]
+                    x, y = values[a][field], values[b][field]
+                    if field == "release_date" and (x is None or y is None):
+                        result = (x is None) - (y is None)
+                    else:
+                        result = (x > y) - (x < y)
+                        if criterion["direction"] == "desc":
+                            result = -result
+                    if result:
+                        return result
+                return 0
+            ordered = sorted(keys, key=cmp_to_key(compare))
             st["game_pos"].update(zip((s for t, s in ordered if t == "g"), positions))
             if self._launcher_raw is not None:
                 # Layout by type (owner decision): system apps, Game Card, folders,
@@ -341,7 +364,8 @@ class LayoutApi:
                 badges_ = sorted((k for k, (f, _) in ents.items() if f == folder and k[0] == "b"),
                                  key=lambda k: (self._label(st, k).lower(), ents[k][1]))
                 self._compact_container(st, folder, rows, system + badges_ + ordered)
-        return self._commit(f"Sorted: {preset}", **st)
+        label = preset if definition.get("builtin") else definition["name"]
+        return self._commit(f"Sorted: {label}", **st)
 
     def _compact_container(self, st, folder, rows, items=None):
         """Every item of `folder` into the lowest free cells, in the given order or

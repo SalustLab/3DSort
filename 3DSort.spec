@@ -17,6 +17,7 @@ a = Analysis(
         ('ui', 'ui'),                                       # index.html, app.js, fonts
         ('tools/save3ds/save3ds_fuse.exe', 'tools/save3ds'),
         ('core/titledates.json.gz', 'core'),
+        ('core/titlenames.json.gz', 'core'),
     ],
     hiddenimports=[],
     hookspath=[],

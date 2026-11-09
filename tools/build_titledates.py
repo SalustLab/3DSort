@@ -14,12 +14,14 @@ apps have no entry and sort as undated in the app. Rerun any time to refresh.
 Usage: python tools/build_titledates.py
 Last generated: 2026-09-30.
 """
+import argparse
 import gzip
 import io
 import json
 import urllib.request
 import xml.etree.ElementTree as ET
 import zipfile
+import unicodedata
 from pathlib import Path
 
 DB_REGIONS = ("GB", "JP", "KR", "TW", "US")
@@ -57,12 +59,48 @@ def gametdb_dates(url: str = GAMETDB_URL) -> dict:
     return dates
 
 
+def title_names(sources):
+    """Exact IDs only; source order wins, then normalized lexical name."""
+    result = {}
+    for entries in sources:
+        candidates = {}
+        for entry in entries:
+            tid = entry.get("TitleID", "").strip().lower()
+            name = " ".join(unicodedata.normalize("NFC", entry.get("Name", "")).split())
+            if len(tid) == 16 and tid.startswith("00040000") and all(c in "0123456789abcdef" for c in tid) and name:
+                candidates.setdefault(tid, []).append(name)
+        for tid, names in candidates.items():
+            result.setdefault(tid, min(names, key=lambda name: (name.lower(), name)))
+    return result
+
+
+def write_names(sources, output=None):
+    output = output or OUT.with_name("titlenames.json.gz")
+    payload = json.dumps(title_names(sources), ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    output.write_bytes(gzip.compress(payload, mtime=0))
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--names-only", action="store_true", help="Only rebuild commercial title names")
+    parser.add_argument("--source-dir", type=Path, help="Read list_GB.json, list_JP.json, etc. locally (names only)")
+    args = parser.parse_args()
+    if args.source_dir and not args.names_only:
+        parser.error("--source-dir requires --names-only")
+    if args.names_only:
+        sources = [json.loads((args.source_dir / f"list_{region}.json").read_text(encoding="utf-8"))
+                   if args.source_dir else json.loads(fetch(DB_URL.format(region)))
+                   for region in DB_REGIONS]
+        write_names(sources)
+        print(f"Wrote {len(title_names(sources))} exact-ID commercial names")
+        return
     dates = gametdb_dates()
     print(f"GameTDB: {len(dates)} game codes with a date")
     table, total = {}, 0
+    sources = []
     for region in DB_REGIONS:
         entries = json.loads(fetch(DB_URL.format(region)))
+        sources.append(entries)
         n = 0
         for e in entries:
             tid = e.get("TitleID", "").strip().lower()
@@ -76,6 +114,7 @@ def main():
                 n += 1
         print(f"3dsdb {region}: {len(entries)} entries, {n} matched a date")
     print(f"Total: {len(table)} tids dated out of {total} applications")
+    write_names(sources)
     ds = gametdb_dates(GAMETDB_DS_URL)
     table.update(ds)
     print(f"GameTDB DS/DSiWare: {len(ds)} game codes with a date")

@@ -27,7 +27,8 @@ from core.sdcard import (NAND_SAVE_IDS, SAVE3DS_NAME, Console, Save3ds,
                          extdata_mtime, find_console, find_consoles,
                          find_sd_drive, id0_from_movable, list_3ds_roots)
 from core.store import Backups, Staging
-from core import titledates
+from core import titledates, titlenames
+from core.sort_presets import Presets, validate as validate_sort_preset
 from core import badges, layout
 from core.layout_api import LayoutApi
 from core.write_api import WriteApi
@@ -72,6 +73,7 @@ class Api(LayoutApi, WriteApi):
         self._operation_lock = threading.RLock()
         self.sd_root = sd_root
         self.workdir = Path(workdir)
+        self._sort_presets = Presets(self.workdir.parent / "sort-presets.json")
         self.backups = backups
         self.launcher_path = launcher      # flat Launcher.dat (read-only fallback)
         self.container_path = container    # homemenu_save.bin (system save, editable)
@@ -95,6 +97,24 @@ class Api(LayoutApi, WriteApi):
         self._badge_writable = False
         self._badge_source = None
         self._badge_sources = {}
+
+    def list_sort_presets(self):
+        return self._sort_presets.library()
+
+    def save_sort_preset(self, preset):
+        entry = validate_sort_preset(preset)
+        custom = self._sort_presets.custom
+        if preset.get("id") and not any(p["id"] == entry["id"] for p in custom):
+            raise ValueError("Preset does not exist.")
+        self._sort_presets.write([p for p in custom if p["id"] != entry["id"]] + [entry])
+        return self.list_sort_presets()
+
+    def delete_sort_preset(self, ident):
+        custom = self._sort_presets.custom
+        if not any(p["id"] == ident for p in custom):
+            raise ValueError("Custom preset does not exist.")
+        self._sort_presets.write([p for p in custom if p["id"] != ident])
+        return self.list_sort_presets()
 
     # ---- lifecycle -------------------------------------------------
     def import_sd(self):
@@ -1341,6 +1361,7 @@ def selftest() -> int:
         "ui/layout.css": (UI / "layout.css").is_file(),
         f"tools/save3ds/{SAVE3DS_NAME}": (ROOT / "tools" / "save3ds" / SAVE3DS_NAME).is_file(),
         "core/titledates.json.gz": len(titledates._load()) > 0,
+        "core/titlenames.json.gz": bool(titlenames.official_title(0x0004000000030800)),
     }
     for name, ok in checks.items():
         print(f"{'ok  ' if ok else 'FAIL'} {name}")
