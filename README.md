@@ -42,7 +42,7 @@ for Linux. No installer, no Python.
   slot. Drop one tile on another to swap them, or on an empty cell to move it
 - Select many titles at once (Shift-click a range, Ctrl-click or Cmd-click to
   add) and move them together onto a title, an empty cell or a folder
-- Sort A to Z, Z to A or by release date, DSiWare and NDS forwarders included
+- Sort globally or inside an individual folder: A to Z, Z to A or by release date, DSiWare and NDS forwarders included
 - Create, rename and delete folders, and give them a badge as icon
 - Place the badges from your collection on the grid (3DSort does not install
   badges; tools like [GYTB](https://wiki.hacks.guide/wiki/3DS:GYTB) do)

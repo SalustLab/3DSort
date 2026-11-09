@@ -301,14 +301,21 @@ class LayoutApi:
                                       if b.get("decoration") != fid}
         changes.update(result)
 
-    def sort_preset(self, preset, rows=4):
-        """Games sorted by name or release date, then every container compacted
+    def sort_preset(self, preset, rows=4, folder=None):
+        """Games sorted by name or release date, then selected containers compacted
         (owner decision 2026-09-07: presets leave no gaps and pull stray items in)."""
         if preset not in ("az", "za", "date_asc", "date_desc"):
             raise ValueError(f"Unknown sort preset: {preset}")
         st = copy.deepcopy(self.staging.state)
+        if folder is not None:
+            if type(folder) is not int or not 0 <= folder < 60 or folder not in st["folder_defs"]:
+                raise ValueError("Folder does not exist.")
+            self._spatial_ready()
+            layout.validate(st, self._unknown_holes)
+        containers = (set(st["folders"].values()) | set(st["nand_folder"].values())
+                      if folder is None else [folder])
         tid = lambda k: (st["tids"] if k[0] == "g" else st["nand_tids"])[k[1]]
-        for folder in set(st["folders"].values()) | set(st["nand_folder"].values()):
+        for folder in containers:
             slots = sorted((s for s in st["game_pos"] if st["folders"][s] == folder), key=st["game_pos"].get)
             positions = [st["game_pos"][s] for s in slots]
             # DSiWare on the NAND (NDS forwarders, user report 2026-09-30) is a

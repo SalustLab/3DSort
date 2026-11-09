@@ -334,6 +334,15 @@ function selName() {
   return (it ? it.name : "HOME").toUpperCase();
 }
 
+function sortControl() {
+  return `      <div class="sortchip chip-lav" id="sortChip" title="System apps, Game Card, folders and badges first, then the games in this order. Closes every gap.">⇅ Sort: ${esc(P.sortMode)} <span style="opacity:.6">▾</span>
+        ${P.sortMenu ? `<div class="menu" id="sortMenu">
+          <div data-preset="az">A → Z</div><div data-preset="za">Z → A</div>
+          <div data-preset="date_asc">Release date ↑</div><div data-preset="date_desc">Release date ↓</div>
+        </div>` : ""}
+      </div>`;
+}
+
 function gridScreen() {
   const px = { S: 46, M: 60, L: 76 }[P.iconSize];
   if (P.openFolder !== null) return previewCol() + folderScreen(px);
@@ -360,12 +369,7 @@ function gridScreen() {
       <div style="flex:1"></div>
       ${S.launcherWritable ? `<div class="chipbtn" id="newFolderBtn" style="border-width:1.5px;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800">+ Folder</div>` : ""}
       <div class="seg" id="sizeSeg">${sizeBtns}</div>
-      <div class="sortchip chip-lav" id="sortChip" title="System apps, Game Card, folders and badges first, then the games in this order. Closes every gap.">⇅ Sort: ${esc(P.sortMode)} <span style="opacity:.6">▾</span>
-        ${P.sortMenu ? `<div class="menu" id="sortMenu">
-          <div data-preset="az">A → Z</div><div data-preset="za">Z → A</div>
-          <div data-preset="date_asc">Release date ↑</div><div data-preset="date_desc">Release date ↓</div>
-        </div>` : ""}
-      </div>
+      ${sortControl()}
     </div>
     ${spatialControls(-1)}
     <div id="selectionStatus" class="selection-status" role="status"></div>
@@ -399,6 +403,7 @@ function folderScreen(px) {
     <div style="display:flex;align-items:baseline;gap:10px;margin:18px 0 10px">
       <div style="font-weight:800;font-size:13px;color:var(--mut);text-transform:uppercase;letter-spacing:1.2px">In this folder · ${members.length} of 60</div>
       <div style="font-size:12px;color:#cbb694;font-weight:600">drag titles in from the home grid, or out to remove</div>
+      ${sortControl()}
     </div>
     ${spatialControls(id)}
     <div id="selectionStatus" class="selection-status" role="status"></div>
@@ -748,12 +753,13 @@ function bind() {
   if ($("viewSeg")) $("viewSeg").querySelectorAll("[data-rows]").forEach(el => el.onclick = () => { P.viewRows = +el.dataset.rows; savePrefs(); render(); });
   if ($("sizeSeg")) $("sizeSeg").querySelectorAll("[data-size]").forEach(el => el.onclick = () => { P.iconSize = el.dataset.size; savePrefs(); render(); });
   if ($("sortChip")) $("sortChip").onclick = e => {
+    if (P.openFolder !== null && (!S.spatialWritable || S.recovery || S.layoutErrors?.length)) return;
     const preset = e.target.dataset && e.target.dataset.preset;
     if (preset) {
       P.sortMenu = false;
       P.sortMode = e.target.textContent;
       savePrefs();
-      refresh("sort_preset", [preset, P.viewRows]).then(r => { if (r) toast("Sorted and compacted (staged)"); });
+      refresh("sort_preset", P.openFolder === null ? [preset, P.viewRows] : [preset, rowsOf(P.openFolder), P.openFolder]).then(r => { if (r) toast(P.openFolder === null ? "Sorted and compacted (staged)" : "Folder sorted and compacted (staged)"); });
     } else { P.sortMenu = !P.sortMenu; render(); }
   };
   if ($("closeFolder")) $("closeFolder").onclick = () => { P.openFolder = null; render(); };

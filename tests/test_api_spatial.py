@@ -558,3 +558,51 @@ def test_failed_preparation_never_imports_to_sd(badge_api, monkeypatch):
         api.write_sd()
     assert api.get_state()["staged"]
     assert api.get_state()["recovery"] is None
+
+
+@pytest.mark.parametrize("preset", ["az", "za", "date_asc", "date_desc"])
+def test_folder_sort_isolated(preset):
+    api = build_api(mock=True)
+    api.get_state()
+    api.set_folder("g:0", 0)
+    api.set_folder("g:1", 0)
+    before = copy.deepcopy(api.staging.state)
+    result = api.sort_preset(preset, 4, 0)
+    after = copy.deepcopy(api.staging.state)
+    assert after["folders"] == before["folders"]
+    for field in ("nand_pos", "nand_folder", "folder_defs", "cart_pos"):
+        assert after[field] == before[field]
+    assert all(after["game_pos"][k] == v for k, v in before["game_pos"].items()
+               if before["folders"][k] != 0)
+    assert not result["launcherDirty"]
+    if before != after:
+        api.undo()
+        assert api.staging.state == before
+        api.redo()
+        assert api.staging.state == after
+
+
+@pytest.mark.parametrize("folder", [True, "0", -1, 60, 59])
+def test_folder_sort_invalid_target(folder):
+    api = build_api(mock=True)
+    api.get_state()
+    before = copy.deepcopy(api.staging.state)
+    with pytest.raises(ValueError):
+        api.sort_preset("az", 4, folder)
+    assert api.staging.state == before
+    assert not api.staging.staged
+
+
+def test_folder_sort_composite_and_reserved_cells(badge_api):
+    api = badge_api
+    api.set_folder("g:0", 0)
+    api.place_badge(4, 0, 20, 2)
+    api._unknown_holes[0] = {19}
+    before = copy.deepcopy(api.staging.state)
+    state = api.sort_preset("az", 6, 0)
+    placed = state["badges"]["placed"]
+    assert len(placed) == 4
+    cells = sorted(b["pos"] for b in placed)
+    assert cells == [cells[0], cells[0]+1, cells[0]+2, cells[0]+3]
+    assert 19 not in cells
+    assert state["folderRows"][0] == before["folder_defs"][0]["rows"]

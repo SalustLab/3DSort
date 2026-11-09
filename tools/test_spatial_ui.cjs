@@ -124,6 +124,14 @@ const path = require('node:path');
 
     // inside a folder: a badge dropped on the big icon asks before replacing the icon
     await page.locator('[data-folder-tile="0"]').click();
+    for (const preset of ['az', 'za', 'date_asc', 'date_desc']) {
+      const beforeSort = await state();
+      await page.locator('#sortChip').click();
+      const sorted = await act('sort_preset', () => page.locator(`[data-preset="${preset}"]`).click());
+      assert.deepEqual(sorted.items.filter(i => i.folder !== 0), beforeSort.items.filter(i => i.folder !== 0));
+      assert.equal(await page.locator('#grid[data-in-folder="0"]').count(), 1);
+    }
+
     await page.getByRole('button', {name: '★ Badges', exact: true}).click();
     await page.locator('[data-badge-id="1"]').dragTo(page.locator('#folderArtDrop'));
     await page.locator('#confirmDecorate').waitFor();
