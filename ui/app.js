@@ -123,14 +123,16 @@ const THEMES = [
 ];
 const theme = () => THEMES.find(t => t.id === P.themeId) || THEMES[0];
 
-// RULES/THEMES are static v2 previews — session-local state, no backend.
-const RULES = [
-  { p: "1", when: "Source is Virtual Console", then: "Move into 🗀 Virtual Console", on: true },
-  { p: "2", when: "Played in the last 30 days", then: "Pin to Page 1 · most played first", on: true },
-  { p: "3", when: "Title contains “Demo”", then: "Move into 🗀 Demos", on: true },
-  { p: "4", when: "Everything else", then: "Sort A→Z after folders", on: false }
-];
-let runOnWrite = true, rulePreview = null;
+let presetLibrary = { presets: [], warning: null };
+let ruleDraft = null, ruleSaved = null, ruleScope = "", ruleError = "";
+const criterionLabels = { internal_title: "Internal title", official_title: "Official title", release_date: "Release date" };
+function rulesDirty() { return JSON.stringify(ruleDraft) !== JSON.stringify(ruleSaved); }
+function selectRule(preset) {
+  if (rulesDirty() && !window.confirm("Discard unsaved preset changes?")) return;
+  ruleDraft = JSON.parse(JSON.stringify(preset));
+  ruleSaved = JSON.parse(JSON.stringify(preset));
+  ruleError = ""; render();
+}
 const BADGES = [
   { m: "★", c: "#ffb400" }, { m: "♥", c: "#ff6fa5" }, { m: "M", c: "#e60012" }, { m: "?", c: "#ffb400" },
   { m: "▲", c: "#7ac70c" }, { m: "♪", c: "#5a4fcf" }, { m: "✿", c: "#ff7d00" }, { m: "◆", c: "#00a0e9" }
@@ -181,7 +183,7 @@ function restoreScroll(tops) {
 }
 
 function render() {
-  if (P.tab === "RULES" || P.tab === "THEMES") {
+  if (P.tab === "THEMES") {
     P.tab = "GRID"; savePrefs(); toast("Coming in a future version");
   }
   renderTop();
@@ -201,7 +203,7 @@ function render() {
 }
 
 function renderTop() {
-  document.getElementById("tabs").innerHTML = ["GRID", "SYNC", "INSTRUCTIONS"].map(t =>
+  document.getElementById("tabs").innerHTML = ["GRID", "RULES", "SYNC", "INSTRUCTIONS"].map(t =>
     `<div class="tab ${P.tab === t ? "on" : ""}" data-tab="${t}">${t}</div>`).join("");
   const n = S.staged.length;
   document.getElementById("writeBtn").textContent = n ? `WRITE (${n}) ▸` : "WRITE ▸";
@@ -337,8 +339,7 @@ function selName() {
 function sortControl() {
   return `      <div class="sortchip chip-lav" id="sortChip" title="System apps, Game Card, folders and badges first, then the games in this order. Closes every gap.">⇅ Sort: ${esc(P.sortMode)} <span style="opacity:.6">▾</span>
         ${P.sortMenu ? `<div class="menu" id="sortMenu">
-          <div data-preset="az">A → Z</div><div data-preset="za">Z → A</div>
-          <div data-preset="date_asc">Release date ↑</div><div data-preset="date_desc">Release date ↓</div>
+          ${presetLibrary.presets.map(p => `<div data-preset="${esc(p.id)}">${esc(p.name)}</div>`).join("") }
         </div>` : ""}
       </div>`;
 }
@@ -434,43 +435,64 @@ function statusBar() {
   </div>`;
 }
 
-// Static v2 preview — rules do not touch the backend.
 function rulesScreen() {
-  const rows = RULES.map((r, i) => `
-    <div style="display:flex;align-items:center;gap:12px;background:var(--card);border:2px solid var(--line);border-radius:12px;padding:12px 16px;box-shadow:0 3px 0 rgba(222,206,186,.5);opacity:${r.on ? "1" : ".55"}">
-      <span style="color:#cbb694;font-size:15px;letter-spacing:-2px;cursor:grab">⠿</span>
-      <div class="dot" style="width:24px;height:24px;border-radius:8px;background:var(--red);color:#fff;font-weight:800;font-size:12px;display:grid;place-items:center">${r.p}</div>
-      <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
-        <span style="background:#faecd4;border:1px solid var(--line2);border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:700;white-space:nowrap">${esc(r.when)}</span>
-        <span style="color:#cbb694;font-weight:800">→</span>
-        <span style="background:#fde8ec;border:1px solid #f3c2cd;border-radius:999px;padding:5px 12px;font-size:12.5px;font-weight:700;color:var(--red2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(r.then)}</span>
-      </div>
-      <span style="font-size:11.5px;font-weight:800;color:var(--mut)">${r.on ? "On" : "Off"}</span>
-      <div class="toggle sm ${r.on ? "on" : ""}" data-rule-toggle="${i}"><div></div></div>
-    </div>`).join("");
-  return `<div style="flex:1;min-height:0;display:flex;flex-direction:column;padding:20px 26px;gap:12px;max-width:900px;overflow:auto">
-    <div style="display:flex;align-items:center;gap:12px">
-      <div>
-        <div style="font-weight:900;font-size:17px">Auto-sort rules</div>
-        <div style="font-size:12.5px;color:var(--mut);font-weight:600">rules run in order, top to bottom. The first match wins</div>
-      </div>
-      <div style="flex:1"></div>
-      <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:700;color:#7a6a58">Run on every write
-        <div class="toggle sm ${runOnWrite ? "on" : ""}" id="runOnWriteToggle"><div></div></div>
-      </div>
-      <div id="previewRunBtn" style="background:var(--ink);color:var(--bg);font-weight:800;font-size:12.5px;padding:9px 16px;border-radius:9px;cursor:pointer">▶ Preview run</div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:8px">
-      ${rows}
-      <div id="addRuleBtn" style="display:grid;place-items:center;border:2px dashed var(--line2);border-radius:12px;padding:12px;font-size:13px;font-weight:800;color:var(--mut);cursor:pointer">+ Add rule</div>
-    </div>
-    ${rulePreview ? `<div style="display:flex;align-items:center;gap:14px;background:#faecd4;border:1px solid var(--line2);border-radius:12px;padding:14px 18px">
-      <span class="dot" style="font-size:12px;color:var(--mut2)">PREVIEW</span>
-      <div style="font-size:13px;font-weight:700;color:#7a6a58">${esc(rulePreview)}</div>
-      <div style="flex:1"></div>
-      <div id="applyRulesBtn" style="background:var(--red);color:#fff;font-weight:800;font-size:12.5px;padding:9px 18px;border-radius:9px;box-shadow:0 3px 0 rgba(143,15,40,.35);cursor:pointer">Apply to staging</div>
-    </div>` : ""}
-  </div>`;
+  const d = ruleDraft, locked = d && d.builtin;
+  return `<div class="rules-page">
+    <aside class="rules-library"><h2>Sorting presets</h2><p>Choose an order. Apply it when you are ready.</p>
+    <button id="newSortPreset">+ New preset</button>
+    ${presetLibrary.warning ? `<p role="alert">${esc(presetLibrary.warning)}</p>` : ""}
+    ${presetLibrary.presets.map(p => `<button data-select-preset="${esc(p.id)}" class="${d && d.id === p.id ? 'active' : ''}">${esc(p.name)}${p.builtin ? '<small>Built-in</small>' : ''}</button>`).join("")}</aside>
+    <section class="rules-editor"><h2>${d ? (locked ? 'Built-in preset' : 'Preset editor') : 'Your sorting, in priority order'}</h2>
+    ${d ? `<label>Preset name<input id="sortPresetName" maxlength="80" value="${esc(d.name)}" ${locked ? 'disabled' : ''}></label>
+    <p>First criterion takes priority. The next criterion resolves ties. Unknown dates always go last.</p>
+    <div class="rules-criteria">${d.criteria.map((c, i) => `<div class="rules-criterion"><strong>${i + 1}</strong>
+      <select aria-label="Criterion ${i + 1}" data-criterion="${i}" ${locked ? 'disabled' : ''}>${Object.entries(criterionLabels).map(([key,label]) => `<option value="${key}" ${key === c.field ? 'selected' : ''}>${label}</option>`).join('')}</select>
+      <select aria-label="Direction ${i + 1}" data-direction="${i}" ${locked ? 'disabled' : ''}><option value="asc" ${c.direction === 'asc' ? 'selected' : ''}>${c.field === 'release_date' ? 'Oldest first' : 'A \u2192 Z'}</option><option value="desc" ${c.direction === 'desc' ? 'selected' : ''}>${c.field === 'release_date' ? 'Newest first' : 'Z \u2192 A'}</option></select>
+      ${locked ? '' : `<button data-rule-up="${i}" aria-label="Move criterion ${i + 1} up" ${i === 0 ? 'disabled' : ''}>&#8593;</button><button data-rule-down="${i}" aria-label="Move criterion ${i + 1} down" ${i === d.criteria.length - 1 ? 'disabled' : ''}>&#8595;</button><button data-rule-remove="${i}" aria-label="Remove criterion ${i + 1}">Remove</button>`}</div>`).join('')}</div>
+    <div class="rules-actions">${locked ? '' : `<button id="addSortCriterion" ${d.criteria.length >= 3 ? 'disabled' : ''}>+ Criterion</button><button id="saveSortPreset">Save</button><button id="cancelSortPreset">Cancel</button>`}<button id="duplicateSortPreset">Duplicate</button>${d.id && !locked ? '<button id="deleteSortPreset">Delete</button>' : ''}</div>
+    <p role="alert" id="sortPresetError">${esc(ruleError)}</p>
+    <div class="rules-apply"><label>Apply to<select id="sortPresetScope"><option value="">Entire layout - each container independently</option>${Object.entries(S.folderNames).map(([id,name]) => `<option value="${id}" ${ruleScope === id ? 'selected' : ''}>Folder: ${esc(name)}</option>`).join('')}</select></label><button id="applySortPreset" ${!d.id || rulesDirty() ? 'disabled' : ''}>Apply to staging</button></div>
+    <p>Sorting keeps games in their folders. GRID labels stay unchanged. Changes can be undone; writing to the SD remains a separate action.</p>` : '<p>Create a preset or select one from the library.</p>'}
+    </section></div>`;
+}
+
+function bindRules() {
+  const byId = id => document.getElementById(id);
+  document.querySelectorAll('[data-select-preset]').forEach(el => el.onclick = () => selectRule(presetLibrary.presets.find(p => p.id === el.dataset.selectPreset)));
+  if (!byId('newSortPreset')) return;
+  byId('newSortPreset').onclick = () => selectRule({name: '', criteria: [{field: 'internal_title', direction: 'asc'}]});
+  if (!ruleDraft) return;
+  const update = () => { byId('applySortPreset').disabled = !ruleDraft.id || rulesDirty(); };
+  byId('sortPresetName').oninput = e => { ruleDraft.name = e.target.value; update(); };
+  document.querySelectorAll('[data-criterion]').forEach(el => el.onchange = () => { ruleDraft.criteria[+el.dataset.criterion].field = el.value; render(); });
+  document.querySelectorAll('[data-direction]').forEach(el => el.onchange = () => { ruleDraft.criteria[+el.dataset.direction].direction = el.value; update(); });
+  for (const [attr, delta] of [['ruleUp', -1], ['ruleDown', 1]]) {
+    document.querySelectorAll(`[data-${attr === 'ruleUp' ? 'rule-up' : 'rule-down'}]`).forEach(el => el.onclick = () => {
+      const i = +el.dataset[attr], j = i + delta;
+      [ruleDraft.criteria[i], ruleDraft.criteria[j]] = [ruleDraft.criteria[j], ruleDraft.criteria[i]]; render();
+    });
+  }
+  document.querySelectorAll('[data-rule-remove]').forEach(el => el.onclick = () => { ruleDraft.criteria.splice(+el.dataset.ruleRemove, 1); render(); });
+  if (byId('addSortCriterion')) byId('addSortCriterion').onclick = () => { const field = Object.keys(criterionLabels).find(f => !ruleDraft.criteria.some(c => c.field === f)); if (field) ruleDraft.criteria.push({field, direction: 'asc'}); render(); };
+  if (byId('cancelSortPreset')) byId('cancelSortPreset').onclick = () => { ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ''; render(); };
+  byId('duplicateSortPreset').onclick = () => { const copy = {name: ruleDraft.name + ' copy', criteria: ruleDraft.criteria}; selectRule(copy); };
+  if (byId('saveSortPreset')) byId('saveSortPreset').onclick = async () => {
+    const result = await callRaw('save_sort_preset', [ruleDraft]);
+    if (result.error) { ruleError = result.error; return render(); }
+    presetLibrary = result;
+    ruleDraft = JSON.parse(JSON.stringify(result.presets.find(p => p.id === ruleDraft.id) || result.presets[result.presets.length - 1]));
+    ruleSaved = JSON.parse(JSON.stringify(ruleDraft)); ruleError = ''; render(); toast('Preset saved');
+  };
+  if (byId('deleteSortPreset')) byId('deleteSortPreset').onclick = async () => {
+    if (!window.confirm('Delete this sorting preset?')) return;
+    const result = await call('delete_sort_preset', [ruleDraft.id]);
+    if (result) { presetLibrary = result; ruleDraft = ruleSaved = null; render(); }
+  };
+  byId('sortPresetScope').onchange = e => { ruleScope = e.target.value; };
+  byId('applySortPreset').onclick = async () => {
+    const name = ruleDraft.name, scope = ruleScope === '' ? null : +ruleScope;
+    if (await refresh('sort_preset', [ruleDraft.id, P.viewRows, scope])) toast(`Applied ${name} to ${scope === null ? 'entire layout' : S.folderNames[scope]} (staged)`);
+  };
 }
 
 // Static v2 preview — only the LIVE PREVIEW gradient follows the chosen theme.
@@ -708,7 +730,7 @@ function postWriteWarning() {
 // ---- events -------------------------------------------------------------------
 function bind() {
   const $ = id => document.getElementById(id);
-  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
+  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty() && !window.confirm("Leave unsaved preset changes?")) return; P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
   $("gearBtn").onclick = () => { P.tab = "SETTINGS"; render(); };
   const openWrite = () => {
     if (!S.staged.length) return toast("Nothing staged to write");
@@ -856,18 +878,7 @@ function bind() {
     toast("Backup restored (staged state reset)");
   });
 
-  // RULES (preview v2)
-  document.querySelectorAll("[data-rule-toggle]").forEach(el => el.onclick = () => {
-    const r = RULES[+el.dataset.ruleToggle]; r.on = !r.on; render();
-  });
-  if ($("runOnWriteToggle")) $("runOnWriteToggle").onclick = () => { runOnWrite = !runOnWrite; render(); };
-  if ($("previewRunBtn")) $("previewRunBtn").onclick = () => {
-    const active = RULES.filter(r => r.on).length;
-    rulePreview = (active * 5 + 2) + " titles would move · 1 folder would be created · nothing deleted";
-    render();
-  };
-  if ($("applyRulesBtn")) $("applyRulesBtn").onclick = () => { rulePreview = null; render(); toast("Coming in v2"); };
-  if ($("addRuleBtn")) $("addRuleBtn").onclick = () => toast("Coming in v2");
+  bindRules();
 
   // THEMES (preview v2)
   document.querySelectorAll("[data-theme]").forEach(el => el.onclick = () => {
@@ -1178,6 +1189,7 @@ async function wizAdvance() {
 
 // ---- boot -------------------------------------------------------------------
 async function enterApp() {
+  presetLibrary = await call("list_sort_presets") || {presets: [], warning: "Preset library unavailable"};
   S = await call("get_state");
   if (!S) return;
   wizChrome(false);

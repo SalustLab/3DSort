@@ -88,6 +88,22 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 .crumb span.link{cursor:pointer}.crumb span.link:hover{color:var(--red)}
 .setrow{display:flex;align-items:center;justify-content:space-between;gap:12px}
 .hidden{display:none!important}
+
+.rules-page {display:flex; flex:1; min-height:0; overflow:auto; gap:24px; padding:24px;}
+.rules-library {width:250px; flex-shrink:0;}
+.rules-page button, .rules-page input, .rules-page select {font:inherit; color:var(--ink); border:1px solid var(--line2); border-radius:8px; padding:9px; background:var(--card);}
+.rules-page button {cursor:pointer; font-weight:800;}
+.rules-page button:disabled {opacity:.5; cursor:default;}
+.rules-library button {display:block; width:100%; text-align:left; margin:8px 0;}
+.rules-library button.active {border:2px solid var(--red);}
+.rules-library small {display:block; color:var(--mut);}
+.rules-editor {flex:1; max-width:900px; background:var(--card); border:2px solid var(--line); border-radius:14px; padding:24px;}
+.rules-editor label {display:flex; flex-direction:column; gap:8px; font-weight:800;}
+.rules-editor p {color:var(--mut); font-size:13px; line-height:1.6;}
+.rules-criterion, .rules-actions, .rules-apply {display:flex; gap:8px; align-items:center; margin:14px 0; flex-wrap:wrap;}
+.rules-criterion strong {background:var(--red); color:white; padding:8px 12px; border-radius:8px;}
+#sortPresetError {color:var(--red);}
+@media(max-width:850px) {.rules-page {flex-direction:column;} .rules-library {width:auto;}}
 </style>
 </head>
 <body>
