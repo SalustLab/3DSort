@@ -2,13 +2,15 @@
 
 Open RULES, choose New preset, give it a name, and add up to three distinct criteria.
 Use the numbered rows and arrow buttons to choose priority; each row has its own
-direction. Save, choose the entire layout or a named folder, and Apply to staging.
-Saved presets also appear in the GRID Sort menu, including inside folders.
+direction. Save stores the configuration without changing the layout.
+To use a saved preset, select it from Sort in GRID. From HOME, each container is
+sorted independently; inside a folder, only that folder is sorted. RULES has no
+application action or saved target scope.
 Built-ins are read-only; Duplicate starts an editable copy. Save and Delete affect
-only the preset library. Apply affects layout staging and supports Undo/Redo.
+only the preset library. Sorting from GRID affects layout staging and supports Undo/Redo.
 Sorting never runs automatically and never writes directly to the SD card.
 
-![RULES with a saved custom preset, priority editor and explicit application scope](images/rules.png)
+![RULES with a saved custom preset, priority editor](images/rules.png)
 
 ## Comparison and safety
 

@@ -124,7 +124,7 @@ const THEMES = [
 const theme = () => THEMES.find(t => t.id === P.themeId) || THEMES[0];
 
 let presetLibrary = { presets: [], warning: null };
-let ruleDraft = null, ruleSaved = null, ruleScope = "", ruleError = "";
+let ruleDraft = null, ruleSaved = null, ruleError = "";
 const criterionLabels = { internal_title: "Internal title", official_title: "Official title", release_date: "Release date" };
 function rulesDirty() { return JSON.stringify(ruleDraft) !== JSON.stringify(ruleSaved); }
 function selectRule(preset) {
@@ -438,7 +438,7 @@ function statusBar() {
 function rulesScreen() {
   const d = ruleDraft, locked = d && d.builtin;
   return `<div class="rules-page">
-    <aside class="rules-library"><h2>Sorting presets</h2><p>Choose an order. Apply it when you are ready.</p>
+    <aside class="rules-library"><h2>Sorting presets</h2><p>Define your presets here. Use them from Sort in GRID.</p>
     <button id="newSortPreset">+ New preset</button>
     ${presetLibrary.warning ? `<p role="alert">${esc(presetLibrary.warning)}</p>` : ""}
     ${presetLibrary.presets.map(p => `<button data-select-preset="${esc(p.id)}" class="${d && d.id === p.id ? 'active' : ''}">${esc(p.name)}${p.builtin ? '<small>Built-in</small>' : ''}</button>`).join("")}</aside>
@@ -451,8 +451,7 @@ function rulesScreen() {
       ${locked ? '' : `<button data-rule-up="${i}" aria-label="Move criterion ${i + 1} up" ${i === 0 ? 'disabled' : ''}>&#8593;</button><button data-rule-down="${i}" aria-label="Move criterion ${i + 1} down" ${i === d.criteria.length - 1 ? 'disabled' : ''}>&#8595;</button><button data-rule-remove="${i}" aria-label="Remove criterion ${i + 1}" title="Remove criterion"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg></button>`}</div>`).join('')}</div>
     <div class="rules-actions">${locked ? '' : `<button id="addSortCriterion" aria-label="Add criterion" title="Add criterion" ${d.criteria.length >= 3 ? 'disabled' : ''}>+</button><button id="saveSortPreset">Save</button><button id="cancelSortPreset">Cancel</button>`}<button id="duplicateSortPreset">Duplicate</button>${d.id && !locked ? '<button id="deleteSortPreset">Delete Preset</button>' : ''}</div>
     <p role="alert" id="sortPresetError">${esc(ruleError)}</p>
-    <div class="rules-apply"><label>Apply to<select id="sortPresetScope"><option value="">Entire layout - each container independently</option>${Object.entries(S.folderNames).map(([id,name]) => `<option value="${id}" ${ruleScope === id ? 'selected' : ''}>Folder: ${esc(name)}</option>`).join('')}</select></label><button id="applySortPreset" ${!d.id || rulesDirty() ? 'disabled' : ''}>Apply to staging</button></div>
-    <p>Sorting keeps games in their folders. GRID labels stay unchanged. Changes can be undone; writing to the SD remains a separate action.</p>` : '<p>Create a preset or select one from the library.</p>'}
+    <p>Save defines this preset without changing your layout. Use Sort in GRID to apply it: HOME sorts each container independently; inside a folder, only that folder is sorted. GRID labels stay unchanged.</p>` : '<p>Create a preset or select one from the library.</p>'}
     </section></div>`;
 }
 
@@ -462,10 +461,9 @@ function bindRules() {
   if (!byId('newSortPreset')) return;
   byId('newSortPreset').onclick = () => selectRule({name: '', criteria: [{field: 'internal_title', direction: 'asc'}]});
   if (!ruleDraft) return;
-  const update = () => { byId('applySortPreset').disabled = !ruleDraft.id || rulesDirty(); };
-  byId('sortPresetName').oninput = e => { ruleDraft.name = e.target.value; update(); };
+  byId('sortPresetName').oninput = e => { ruleDraft.name = e.target.value; };
   document.querySelectorAll('[data-criterion]').forEach(el => el.onchange = () => { ruleDraft.criteria[+el.dataset.criterion].field = el.value; render(); });
-  document.querySelectorAll('[data-direction]').forEach(el => el.onchange = () => { ruleDraft.criteria[+el.dataset.direction].direction = el.value; update(); });
+  document.querySelectorAll('[data-direction]').forEach(el => el.onchange = () => { ruleDraft.criteria[+el.dataset.direction].direction = el.value; });
   for (const [attr, delta] of [['ruleUp', -1], ['ruleDown', 1]]) {
     document.querySelectorAll(`[data-${attr === 'ruleUp' ? 'rule-up' : 'rule-down'}]`).forEach(el => el.onclick = () => {
       const i = +el.dataset[attr], j = i + delta;
@@ -487,11 +485,6 @@ function bindRules() {
     if (!window.confirm('Delete this sorting preset?')) return;
     const result = await call('delete_sort_preset', [ruleDraft.id]);
     if (result) { presetLibrary = result; ruleDraft = ruleSaved = null; render(); }
-  };
-  byId('sortPresetScope').onchange = e => { ruleScope = e.target.value; };
-  byId('applySortPreset').onclick = async () => {
-    const name = ruleDraft.name, scope = ruleScope === '' ? null : +ruleScope;
-    if (await refresh('sort_preset', [ruleDraft.id, P.viewRows, scope])) toast(`Applied ${name} to ${scope === null ? 'entire layout' : S.folderNames[scope]} (staged)`);
   };
 }
 
