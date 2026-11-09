@@ -723,7 +723,7 @@ function postWriteWarning() {
 // ---- events -------------------------------------------------------------------
 function bind() {
   const $ = id => document.getElementById(id);
-  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty() && !window.confirm("Leave unsaved preset changes?")) return; P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
+  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty()) { if (!window.confirm("Leave unsaved preset changes?")) return; ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
   $("gearBtn").onclick = () => { P.tab = "SETTINGS"; render(); };
   const openWrite = () => {
     if (!S.staged.length) return toast("Nothing staged to write");

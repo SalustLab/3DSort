@@ -198,3 +198,33 @@ def test_official_final_tid_fallback(monkeypatch):
     result = api.sort_preset(preset["id"])
     games = sorted((i for i in result["items"] if i["folder"] == -1), key=lambda i:i["pos"])
     assert [i["tid"] for i in games] == sorted(i["tid"] for i in games)
+
+@pytest.mark.parametrize('first_direction,second_direction,expected', [
+    ('asc', 'asc', [1, 0, 2]),
+    ('asc', 'desc', [0, 1, 2]),
+    ('desc', 'asc', [2, 1, 0]),
+    ('desc', 'desc', [2, 0, 1]),
+])
+def test_three_key_priority_and_independent_directions(monkeypatch, first_direction, second_direction, expected):
+    api = setup(monkeypatch)
+    for i in range(3):
+        api.set_folder(f'g:{i}', 0)
+    tids = api.staging.state['tids']
+    monkeypatch.setattr(titlenames, '_table', {f'{tids[i]:016x}': name for i, name in enumerate(('A', 'A', 'B'))})
+    monkeypatch.setattr(titledates, '_table', {f'{tids[i]:016x}': '2000-01-01' for i in range(3)})
+    preset = save(api, [('official_title', first_direction), ('internal_title', second_direction), ('release_date', 'desc')])
+    result = api.sort_preset(preset['id'], 4, 0)
+    assert order(api, result, 0) == [f'g:{i}' for i in expected]
+    assert not result['launcherDirty']
+
+
+def test_sort_without_launcher_preserves_reserved_cells(monkeypatch):
+    api = build_api(mock=True, no_launcher=True)
+    api.get_state()
+    before = copy.deepcopy(api.staging.state)
+    for i, name in enumerate(('Zulu', 'Alpha', 'Mike')):
+        api._names[before['tids'][i]] = name
+    result = api.sort_preset('az')
+    assert order(api, result) == ['g:1', 'g:2', 'g:0']
+    assert sorted(api.staging.state['game_pos'].values()) == sorted(before['game_pos'].values())
+    assert not result['launcherDirty']

@@ -50,3 +50,10 @@ def test_linux_spec_uses_native_helper_and_onedir():
     assert "COLLECT(" in spec
     assert "BUNDLE(" not in spec  # onedir tarball, not an app bundle
     assert "sandbox" not in spec  # never bundle the console keys
+
+
+def test_all_specs_include_offline_sort_catalogs():
+    for name in ('3DSort.spec', '3DSort.macos.spec', '3DSort.linux.spec'):
+        spec = (ROOT / name).read_text(encoding='utf-8')
+        assert 'titledates.json.gz' in spec
+        assert 'titlenames.json.gz' in spec

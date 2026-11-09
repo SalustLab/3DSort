@@ -15,7 +15,8 @@ const path = require('node:path');
     browser=await chromium.launch({headless:true});
     const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
     page.on('pageerror',e=>errors.push(e.message));
-    page.on('dialog',d=>d.accept());
+    let acceptDialog = true;
+    page.on('dialog', d => acceptDialog ? d.accept() : d.dismiss());
     const api=async(name,args=[]) => { const r=await(await page.request.post(base+'/api/'+name,{data:{args}})).json(); assert(!r.error,r.error); return r; };
     const act=async(name,fn) => {const waiting=page.waitForResponse(r=>r.url()===base+'/api/'+name);await fn();const result=await(await waiting).json();assert(!result.error,result.error);return result;};
     // Disk usage changes independently of layout or preset editing.
@@ -76,6 +77,23 @@ const path = require('node:path');
     await page.locator('[data-tab="RULES"]').click();
     await page.locator(`[data-select-preset="${preset.id}"]`).click();
     assert.equal(await page.locator('#sortPresetName').inputValue(),'Edited order');
+    // Rejected navigation retains the draft; accepted navigation discards it.
+    await page.locator('#sortPresetName').fill('Unsaved name');
+    acceptDialog = false;
+    await page.locator('[data-tab="GRID"]').click();
+    assert.equal(await page.locator('#sortPresetName').inputValue(), 'Unsaved name');
+    acceptDialog = true;
+    await page.locator('[data-tab="GRID"]').click();
+    await page.locator('[data-tab="RULES"]').click();
+    assert.equal(await page.locator('#sortPresetName').inputValue(), 'Edited order');
+    // Invalid drafts show persistent feedback and leave the library unchanged.
+    await page.locator('#sortPresetName').fill('');
+    const invalidResponse = page.waitForResponse(r => r.url() === base+'/api/save_sort_preset');
+    await page.locator('#saveSortPreset').click();
+    assert((await (await invalidResponse).json()).error);
+    await page.locator('#sortPresetError').filter({hasText:'name'}).waitFor();
+    assert.equal((await api('list_sort_presets')).presets.find(p => p.id === preset.id).name, 'Edited order');
+    await page.locator('#cancelSortPreset').click();
     const layoutBeforeDeleting = await api('get_state');
     await act('delete_sort_preset',()=>page.locator('#deleteSortPreset').click());
     assert.deepEqual(layoutState(await api('get_state')), layoutState(layoutBeforeDeleting), 'Deleting a preset must not change layout or staging');
