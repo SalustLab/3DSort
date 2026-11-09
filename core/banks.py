@@ -51,6 +51,7 @@ def discover(root: Path) -> dict:
     try:
         entries = list(bankdir.iterdir())
     except OSError:
+        result["warnings"].append("Bank directory cannot be enumerated.")
         return result
     slots = {}
     for entry in entries:
@@ -58,8 +59,12 @@ def discover(root: Path) -> dict:
         if match and int(match[1]) < 40 and _plain(entry, root):
             slots[int(match[1])] = entry
     for number, path in sorted(slots.items()):
-        recognizable = any(re.fullmatch(r"[0-9a-fA-F]{32}", p.name)
-                             and _plain(p, root) for p in path.iterdir())
+        try:
+            recognizable = any(re.fullmatch(r"[0-9a-fA-F]{32}", p.name)
+                                 and _plain(p, root) for p in path.iterdir())
+        except OSError:
+            recognizable = False
+            result["warnings"].append(f"Slot {number} cannot be enumerated.")
         result["detected"] |= recognizable
         result["banks"].append({"id": f"slot:{number}", "slot": number,
                                 "name": values.get(f"SLOT_NAME_{number}") or f"Slot {number}",
@@ -72,6 +77,10 @@ def discover(root: Path) -> dict:
         number = int(raw) if re.fullmatch(r"0|[1-9][0-9]?", raw) else None
         if number is not None and (number >= 40 or number in slots):
             number = None
+        if number is not None:
+            result["warnings"].append(
+                f"Configuration suggests active slot {number}; directory ownership is unverified.")
+        number = None  # INI updates and unchecked renames cannot establish ownership.
         result["banks"].insert(0, {"id": "active", "slot": number,
             "name": (values.get(f"SLOT_NAME_{number}") or f"Slot {number}")
                     if number is not None else "Active bank — slot unknown",
