@@ -107,7 +107,8 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 .rules-editor p {color:var(--mut); font-size:13px; line-height:1.6;}
 .rules-criterion, .rules-actions, .rules-apply {display:flex; gap:8px; align-items:center; margin:14px 0; flex-wrap:wrap;}
 .rules-apply {align-items:flex-end;}
-.rules-criterion strong {background:var(--red); color:white; padding:8px 12px; border-radius:8px;}
+.rules-criterion strong, .rules-page #addSortCriterion {box-sizing:border-box; width:38px; height:38px; padding:0; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0;}
+.rules-criterion strong {background:var(--red); color:white; border-radius:8px;}
 #sortPresetError {color:var(--red);}
 @media(max-width:850px) {.rules-page {flex-direction:column;} .rules-library {width:auto;}}
 </style>
