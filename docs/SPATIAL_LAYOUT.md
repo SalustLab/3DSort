@@ -7,9 +7,10 @@ Shipped in v1.2.0 (2026-09-07) after the console validation recorded in
 
 - Import preserves gaps. Moving an item into an empty cell leaves its source
   empty. Unrelated items never move as a side effect of a swap or folder change.
-- A-Z/date presets reorder games only among their occupied cells, separately in
-  each container. `Compact games` explicitly fills available cells in the current
-  container while keeping NAND, cart, folders and badges fixed.
+- Preset sorting and compaction follow the whole-container rules below when a
+  Launcher is available. Without a readable Launcher, presets reorder SD games
+  among their known occupied cells, preserving unknown reservations. See
+  [sorting presets](SORT_PRESETS.md) for custom criteria and folder scope.
 - GRID has a collapsible badge collection with search, set filter, stock and
   deferred images. Select/click or drag to place, drag to move, return to remove.
 - Composite badges move as groups into free areas; single-cell items can swap.
