@@ -165,18 +165,24 @@ class Save3ds:
             if not p.exists():
                 raise FileNotFoundError(f"save3ds resource missing: {p}")
 
-    def _run(self, extdata_id: str, sd_root: Path, mode: str, target: Path):
+    def _run(self, extdata_id: str, sd_root: Path, mode: str, target: Path, *, readonly=False):
         self._check()
         target.mkdir(parents=True, exist_ok=True)
         cmd = [str(self.exe), "--sdext", extdata_id, "--sd", str(sd_root),
                "--boot9", str(self.boot9), "--movable", str(self.movable),
                mode, str(target)]
+        if readonly:
+            cmd.append("--readonly")
         r = subprocess.run(cmd, capture_output=True, text=True, **_RUN_KW)
         if r.returncode != 0:
             raise RuntimeError(f"save3ds {mode} failed: {r.stderr or r.stdout}")
 
     def extract(self, extdata_id: str, sd_root: Path, out_dir: Path):
         self._run(extdata_id, sd_root, "--extract", out_dir)
+
+    def extract_readonly(self, extdata_id: str, sd_root: Path, out_dir: Path):
+        """Explicit read-only archive open for inspection, never import."""
+        self._run(extdata_id, sd_root, "--extract", out_dir, readonly=True)
 
     def import_(self, extdata_id: str, sd_root: Path, src_dir: Path):
         self._run(extdata_id, sd_root, "--import", src_dir)

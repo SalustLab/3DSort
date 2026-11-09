@@ -17,6 +17,7 @@ import time
 import threading
 import functools
 import inspect
+import os
 from pathlib import Path
 
 from core.icons import (cache_index, icon_png_b64, smdh_entry, smdh_short_name,
@@ -30,6 +31,7 @@ from core.store import Backups, Staging
 from core import titledates, titlenames
 from core.sort_presets import Presets, validate as validate_sort_preset
 from core import badges, layout
+from core import themes
 from core.layout_api import LayoutApi
 from core.write_api import WriteApi
 
@@ -97,6 +99,68 @@ class Api(LayoutApi, WriteApi):
         self._badge_writable = False
         self._badge_source = None
         self._badge_sources = {}
+        self._theme_library = None
+
+    def list_themes(self):
+        self._theme_library = themes.Library(self.sd_root)
+        return self._theme_library.discover()
+
+    def get_theme(self, ident, full=False):
+        if self._theme_library is None or self._theme_library.root != self.sd_root:
+            raise ValueError("Refresh the theme library first")
+        return self._theme_library.detail(ident, bool(full))
+
+    def get_theme_cache(self):
+        """Extract only the selected console's theme archive to a private temp tree.
+
+        Never invoke import_sd here: its setup flow publishes an SD dump script.
+        """
+        unknown = {"status": "unknown", "message": "Current theme unknown: no selected console."}
+        if self.console is None or self.sd_root is None:
+            return unknown
+        eid = themes.THEME_EXTDATA.get(self.console.region)
+        if eid is None:
+            return {**unknown, "message": "Theme extdata mapping is unsupported for this region."}
+        try:
+            if not getattr(self.save3ds, "synthetic", False):
+                if id0_from_movable(self.save3ds.movable.read_bytes()) != self.console.id0:
+                    raise ValueError("Selected console does not match the decryption key")
+                id0_root = self.sd_root / "Nintendo 3DS" / self.console.id0
+                themes.safe_path(id0_root, self.sd_root)
+                id1s = [p for p in id0_root.iterdir() if p.is_dir() and len(p.name) == 32]
+                if len(id1s) != 1 or id1s[0].name != self.console.id1:
+                    raise ValueError("Ambiguous filesystem tree; cache inspection is unavailable")
+            parent = (self.sd_root / "Nintendo 3DS" / self.console.id0 / self.console.id1 /
+                      "extdata" / "00000000")
+            themes.safe_path(parent, self.sd_root)
+            matches = [p for p in parent.iterdir() if p.name.lower() == eid]
+            if len(matches) > 1:
+                raise ValueError("Ambiguous theme extdata directory")
+            source = matches[0] if matches else parent / eid
+            themes.safe_path(source, self.sd_root)
+            # Check redirects before giving the native extractor this archive.
+            count, total = 0, 0
+            def scan_error(error):
+                raise error
+            for directory, dirs, files in os.walk(source, followlinks=False, onerror=scan_error):
+                for name in dirs + files:
+                    path = themes.safe_path(Path(directory) / name, self.sd_root)
+                    count += 1
+                    if path.is_file():
+                        total += path.stat().st_size
+                    if count > 512 or total > 64 * 1024 * 1024:
+                        raise ValueError("Theme extdata exceeds inspection limits")
+            with tempfile.TemporaryDirectory(prefix="3dsort-theme-") as temp:
+                out = Path(temp)
+                self.save3ds.extract_readonly("00000000" + eid, self.sd_root, out)
+                result = themes.cache_info(lambda name, limit: themes.read_file(out / "user" / name, out, limit))
+                return {**result, "extdataId": eid}
+        except FileNotFoundError:
+            return {**unknown, "message": "Theme cache unavailable: theme extdata or a cache file is missing."}
+        except OSError:
+            return {**unknown, "message": "Theme cache unavailable: cache files could not be read."}
+        except (ValueError, RuntimeError) as exc:
+            return {**unknown, "message": "Theme cache unavailable: " + str(exc)}
 
     def list_sort_presets(self):
         return self._sort_presets.library()
@@ -1102,6 +1166,9 @@ class FakeSave3ds(Save3ds):
 
     def __init__(self, plain_dir: Path):
         self.plain = Path(plain_dir)
+
+    def extract_readonly(self, extdata_id, sd_root, out_dir):
+        self.extract(extdata_id, sd_root, out_dir)
 
     def extract(self, extdata_id, sd_root, out_dir):
         import shutil
