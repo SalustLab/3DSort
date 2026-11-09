@@ -29,7 +29,7 @@ from core.sdcard import (NAND_SAVE_IDS, SAVE3DS_NAME, Console, Save3ds,
 from core.store import Backups, Staging
 from core import titledates, titlenames
 from core.sort_presets import Presets, validate as validate_sort_preset
-from core import badges, layout
+from core import banks, badges, layout
 from core.layout_api import LayoutApi
 from core.write_api import WriteApi
 
@@ -46,12 +46,29 @@ PICK_REGION_ERROR = ("Several HOME menu layouts on this card: choose which one "
                      "the console uses.")
 
 
+BANK_MUTATIONS = frozenset((
+    "move_to_position", "swap_items", "move_games", "move_item", "set_folder",
+    "sort_preset", "compact_games", "place_badge", "place_badge_in_folder",
+    "remove_badge", "decorate_folder", "folder_create", "folder_rename",
+    "folder_empty", "folder_delete", "undo", "redo", "reset_staging",
+    "backup_manual", "restore_backup", "write_sd", "recover_write",
+    "verify_inject", "confirm_inject", "cancel_inject"))
+
+
+def name_is_mutation(name):
+    return name in BANK_MUTATIONS
+
+
 def _serialized_api(cls):
     """Serialize both transports, preserving signatures for pywebview's bridge."""
     def wrap(method):
         @functools.wraps(method)
         def locked(self, *args, **kwargs):
             with self._operation_lock:
+                if name_is_mutation(method.__name__):
+                    error = self._bank_mutation_error()
+                    if error:
+                        return {"error": error}
                 return method(self, *args, **kwargs)
         locked.__signature__ = inspect.signature(method)
         return locked
@@ -69,6 +86,8 @@ class Api(LayoutApi, WriteApi):
                  backups: Backups, launcher: Path | None = None,
                  container: Path | None = None,
                  region_choices: dict[str, str] | None = None):
+        self._selected_bank = "active"
+        self._bank_anchor = None
         self.save3ds = save3ds
         self._operation_lock = threading.RLock()
         self.sd_root = sd_root
@@ -98,6 +117,131 @@ class Api(LayoutApi, WriteApi):
         self._badge_source = None
         self._badge_sources = {}
 
+    def _bank_status(self):
+        info = banks.discover(self.sd_root) if self.sd_root else {"detected": False, "banks": [], "warnings": []}
+        for entry in info["banks"]:
+            entry.pop("root", None)
+            entry["editable"] = entry["active"]
+            entry["restriction"] = None if entry["active"] else "Inactive bank: read-only. Shared NAND layout is unavailable."
+        info["selected"] = self._selected_bank
+        info["readOnly"] = self._selected_bank != "active"
+        if info["readOnly"] and hasattr(self, "_inactive_source"):
+            from core.write_api import tree_hashes
+            source, baseline = self._inactive_source
+            try:
+                safe = banks._plain(source, Path(self.sd_root).absolute())
+                if safe:
+                    for path in source.rglob("*"):
+                        st = path.lstat()
+                        if path.is_symlink() or getattr(st, "st_file_attributes", 0) & 0x400:
+                            safe = False
+                            break
+                unchanged = safe and tree_hashes(source) == baseline
+            except OSError:
+                unchanged = False
+            if not unchanged:
+                info["warnings"].append("Source bank changed or disconnected. Display is a previously loaded snapshot; re-import to refresh.")
+        return info
+
+    def _active_anchor(self):
+        path = Path(self.sd_root) / "Nintendo 3DS"
+        if not banks._plain(path.absolute(), Path(self.sd_root).absolute()):
+            return None
+        try:
+            st = path.stat()
+            return (st.st_dev, st.st_ino, st.st_ctime_ns)
+        except OSError:
+            return None
+
+    def _bank_mutation_error(self):
+        if self._selected_bank != "active":
+            return "Inactive bank is read-only. Select the active bank to edit."
+        if self._bank_anchor is not None and self._active_anchor() != self._bank_anchor:
+            return "Active bank changed or disconnected. Re-import before editing."
+        return None
+
+    def select_bank(self, bank_id, discard_staged=False):
+        if self._recovery_info() or self._pending_inject_info():
+            return {"error": "Resolve the pending write or NAND injection before changing banks."}
+        if bank_id == self._selected_bank:
+            return self.get_state()
+        entries = banks.discover(self.sd_root)["banks"] if self.sd_root else []
+        entry = next((b for b in entries if b["id"] == bank_id), None)
+        if entry is None:
+            return {"error": "Bank is unavailable. Reconnect the card and refresh."}
+        if self.staging and self.staging.staged and discard_staged is not True:
+            return {"error": "Discard staged changes before changing banks?", "needsConfirm": True}
+        previous = self.__dict__.copy()
+        try:
+            self._selected_bank = bank_id
+            if bank_id == "active":
+                self.staging = None
+                result = self.import_sd()
+                if "error" in result:
+                    raise ValueError(result["error"])
+                return result
+            return self._import_inactive(Path(entry["root"]))
+        except (OSError, ValueError, RuntimeError, struct.error) as exc:
+            self.__dict__.update(previous)
+            return {"error": f"Bank could not be loaded: {exc}"}
+
+    def _import_inactive(self, source):
+        import shutil
+        import re
+        from core.write_api import tree_hashes
+        root = Path(self.sd_root).absolute()
+        # Copy only encrypted HOME containers, never an installed title library.
+        with tempfile.TemporaryDirectory(prefix="3dsort-bank-") as temporary:
+            virtual = Path(temporary) / "sd"
+            target = virtual / "Nintendo 3DS"
+            candidates = []
+            for id0 in source.iterdir():
+                if not re.fullmatch(r"[0-9a-fA-F]{32}", id0.name) or not banks._plain(id0, root):
+                    continue
+                for id1 in id0.iterdir():
+                    if not re.fullmatch(r"[0-9a-fA-F]{32}", id1.name) or not banks._plain(id1, root):
+                        continue
+                    ext = id1 / "extdata" / "00000000"
+                    if not banks._plain(ext, root):
+                        continue
+                    for home in ext.iterdir():
+                        from core.sdcard import HOME_EXTDATA_IDS
+                        if home.name.lower() in HOME_EXTDATA_IDS and banks._plain(home, root):
+                            candidates.append((id0.name, id1.name, home))
+            key_id = self._sd_movable_id0()
+            if key_id:
+                candidates = [c for c in candidates if c[0].lower() == key_id.lower()]
+            if len(candidates) != 1:
+                raise ValueError("Choose a bank with exactly one compatible ID0/ID1 and HOME region; ambiguous or missing extdata.")
+            id0, id1, home = candidates[0]
+            for path in (home, *home.rglob("*")):
+                st = path.lstat()
+                if path.is_symlink() or getattr(st, "st_file_attributes", 0) & 0x400:
+                    raise ValueError("Redirected extdata is not supported.")
+            before = tree_hashes(home)
+            destination = target / id0 / id1 / "extdata" / "00000000" / home.name
+            shutil.copytree(home, destination)
+            self.console = find_consoles(virtual, prefer_id0=key_id)[0]
+            error = self._resolve_keys()
+            if error:
+                raise ValueError(error)
+            extracted = Path(temporary) / "plain"
+            self.save3ds.extract(self.console.extdata_id, virtual, extracted)
+            if tree_hashes(home) != before:
+                raise ValueError("Source bank changed during loading; retry after reconnecting.")
+            self._badges = None
+            self._badge_source = None
+            self._badge_sources = {}
+            self._badge_error = "Inactive badge layout is not loaded."
+            self._badge_writable = False
+            self._launcher_writable = False
+            self._launcher_error = "Shared NAND cannot establish this bank's layout."
+            self._load(extracted)
+            self._inactive_source = (home, before)
+            self._unknown_holes = {}
+            self._candidates = []
+            return self.get_state()
+
     def list_sort_presets(self):
         return self._sort_presets.library()
 
@@ -119,6 +263,16 @@ class Api(LayoutApi, WriteApi):
     # ---- lifecycle -------------------------------------------------
     def import_sd(self):
         """(Re)reads the SD layout into the workdir and resets the staging."""
+        if self._selected_bank != "active":
+            entry = next((b for b in banks.discover(self.sd_root)["banks"] if b["id"] == self._selected_bank), None)
+            if entry is None:
+                return {"error": "Selected bank is no longer available."}
+            previous = self.__dict__.copy()
+            try:
+                return self._import_inactive(Path(entry["root"]))
+            except (OSError, ValueError, RuntimeError, struct.error) as exc:
+                self.__dict__.update(previous)
+                return {"error": str(exc)}
         if self.sd_root is None:
             self.sd_root = find_sd_drive()
         elif not (Path(self.sd_root) / "Nintendo 3DS").is_dir():
@@ -166,6 +320,7 @@ class Api(LayoutApi, WriteApi):
         self.save3ds.extract(self.console.extdata_id, self.sd_root, ext)
         self._load_badges()
         self._load(ext)
+        self._bank_anchor = self._active_anchor()
         self._prune_badge_sources()
         return self.get_state()
 
@@ -192,7 +347,7 @@ class Api(LayoutApi, WriteApi):
               "tids": {e.slot: e.tid for e in sd.entries},
               "nand_tids": {}, "nand_pos": {}, "nand_folder": {},
               "folder_defs": {}, "cart_pos": None}
-        launcher_raw = self._read_launcher()
+        launcher_raw = self._read_launcher() if self._selected_bank == "active" else None
         if launcher_raw:
             entries, lfolders, cart = parse_launcher(launcher_raw)
             st["nand_tids"] = {e.slot: e.tid for e in entries}
@@ -416,6 +571,7 @@ class Api(LayoutApi, WriteApi):
                    for p in sorted(self._unknown_holes.get(-1, set()))]
         system.sort(key=lambda s: (s["folder"], s["pos"]))
         return {
+            "banks": self._bank_status(),
             "items": items,
             "system": system,
             "folderNames": {fid: d["name"] for fid, d in st["folder_defs"].items()},
@@ -484,6 +640,9 @@ class Api(LayoutApi, WriteApi):
 
     # ---- mutations (staged) ----------------------------------------------
     def _commit(self, label, **changes):
+        error = self._bank_mutation_error()
+        if error:
+            raise ValueError(error)
         if self._recovery_info():
             raise ValueError("Finish or restore the interrupted write in SYNC first.")
         if self._badge_error:
@@ -908,6 +1067,8 @@ class Api(LayoutApi, WriteApi):
         return {"drives": [{"root": r, "current": r == cur} for r in roots]}
 
     def set_sd_root(self, path):
+        if self._selected_bank != "active":
+            return {"error": "Return to the active bank before changing cards."}
         if self._recovery_info() and Path(path).resolve() != Path(self.sd_root).resolve():
             return {"error": "Recover the interrupted write before switching cards."}
         p = Path(path)
@@ -919,6 +1080,8 @@ class Api(LayoutApi, WriteApi):
         return self.import_sd()  # re-derives console, keys, container, receipt
 
     def region_candidates(self):
+        if self._selected_bank != "active":
+            return {"error": "Inactive banks require an unambiguous HOME region."}
         """The HOME menu layouts on this card, best first, with what is inside
         each one. The counts are EVIDENCE for the user, never the decision: a
         heavily used console transferred to a fresh region leaves the bigger
@@ -958,6 +1121,8 @@ class Api(LayoutApi, WriteApi):
                 "current": self.console.region if self.console else None}
 
     def set_region(self, region, force=False):
+        if self._selected_bank != "active":
+            return {"error": "Inactive region selection is unavailable; select an unambiguous bank."}
         """Picks which HOME menu layout this card's console actually uses.
 
         A card-level switch, guarded like set_sd_root: the staged edits and any
@@ -979,7 +1144,7 @@ class Api(LayoutApi, WriteApi):
                     if c.id0 == id0 and c.region == region), None)
         if hit is None:
             return {"error": f"No {region} HOME menu layout on this card."}
-        staged = len(self.staging.state["staged"]) if self.staging else 0
+        staged = len(self.staging.staged) if self.staging else 0
         if staged and not force:
             return {"error": f"{staged} staged change(s) would be discarded: they "
                              f"describe the current layout, not the "
