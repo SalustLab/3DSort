@@ -2,6 +2,7 @@
 const {chromium} = require('playwright');
 const {spawn} = require('node:child_process');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 (async () => {
   const root = path.resolve(__dirname, '..'), port = 8397, base = `http://127.0.0.1:${port}`;
@@ -17,6 +18,8 @@ const path = require('node:path');
     page.on('dialog',d=>d.accept());
     const api=async(name,args=[]) => { const r=await(await page.request.post(base+'/api/'+name,{data:{args}})).json(); assert(!r.error,r.error); return r; };
     const act=async(name,fn) => {const waiting=page.waitForResponse(r=>r.url()===base+'/api/'+name);await fn();const result=await(await waiting).json();assert(!result.error,result.error);return result;};
+    // Disk usage changes independently of layout or preset editing.
+    const layoutState = ({sd, ...state}) => state;
     const order=s=>s.items.filter(i=>i.folder===-1).sort((a,b)=>a.pos-b.pos).map(i=>i.key);
     await page.goto(base);await page.locator('#grid').waitFor();
     await page.locator('[data-tab="RULES"]').click();
@@ -45,13 +48,14 @@ const path = require('node:path');
     assert.deepEqual(preset.criteria,[{field:'release_date',direction:'asc'},{field:'internal_title',direction:'desc'}]);
     await page.locator('#sortPresetName').fill('Edited order');
     await act('save_sort_preset',()=>page.locator('#saveSortPreset').click());
-    await page.screenshot({path:path.join(root,'docs/images/rules.png')});
+    fs.mkdirSync(path.join(root,'.cache'), {recursive:true});
+    await page.screenshot({path:path.join(root,'.cache','rules-ui.png')});
     // Switch to an unambiguous name-only order for exact visual assertions.
     await page.locator('[data-rule-remove="0"]').click();
     await act('save_sort_preset',()=>page.locator('#saveSortPreset').click());
     const before=await api('get_state');
     const expected=before.items.filter(i=>i.folder===-1).sort((a,b)=>a.name.toLowerCase()<b.name.toLowerCase()?1:a.name.toLowerCase()>b.name.toLowerCase()?-1:0).map(i=>i.key);
-    assert.deepEqual(before, layoutBeforeEditing, 'Editing presets must not change layout or staging');
+    assert.deepEqual(layoutState(before), layoutState(layoutBeforeEditing), 'Editing presets must not change layout or staging');
     await page.locator('[data-tab="GRID"]').click();await page.locator('#grid').waitFor();
     await page.locator('#sortChip').click();
     const after=await act('sort_preset',()=>page.locator(`[data-preset="${preset.id}"]`).click());
@@ -74,7 +78,7 @@ const path = require('node:path');
     assert.equal(await page.locator('#sortPresetName').inputValue(),'Edited order');
     const layoutBeforeDeleting = await api('get_state');
     await act('delete_sort_preset',()=>page.locator('#deleteSortPreset').click());
-    assert.deepEqual(await api('get_state'), layoutBeforeDeleting, 'Deleting a preset must not change layout or staging');
+    assert.deepEqual(layoutState(await api('get_state')), layoutState(layoutBeforeDeleting), 'Deleting a preset must not change layout or staging');
     assert(!(await api('list_sort_presets')).presets.some(p=>p.id===preset.id));
     assert.deepEqual(errors,[]);
     console.log('RULES UI checks passed');
