@@ -29,6 +29,16 @@ Synthetic path-sensitive helpers validate this application flow. Extraction with
 the actual bundled helper and physical-console compatibility remain unverified;
 no public encrypted fixture with suitable synthetic boot9 resources was added.
 
+### Import of the active bank is not filesystem-read-only
+
+Bank discovery and inactive loading never write to the card. Importing the
+active bank (`import_sd`, including returning to `active` from an inactive bank)
+still runs the ordinary import lifecycle, which publishes
+`gm9/scripts/3DSort_dump.gm9` to the SD on every import (`Api._publish_dump_script`
+in `app.py`), creating `gm9/scripts/` if needed. Viewing the active bank therefore
+writes that one file even when nothing is edited. Test against a copy of the
+card (for example under the ignored `sandbox/`) when the card must stay untouched.
+
 ## Partial layout representation
 
 Only the inactive bank's SaveData and title caches supply titles and positions.
@@ -67,7 +77,19 @@ collections, switching, backend mutation rejection, staging confirmation,
 failed-load preservation, recovery, ordinary cards, incompatible saves, ambiguous
 regions/ID1 directories, source changes and source-byte preservation.
 `tools/test_3dsbank_ui.cjs` exercises the real API and rendered selector, switching,
-confirmation cancellation/acceptance, read-only feedback and SYNC status.
+confirmation cancellation/acceptance, read-only feedback and SYNC status. It also
+checks the header at 929, 1280 and 1920 px for the active and inactive banks:
+every header item stays inside the 56 px bar without overlap, SD information
+wraps to at most two lines, the selector keeps a readable width and the page
+never scrolls horizontally. Optional `PYTHON` and `CHROMIUM_PATH` work as in the
+other browser scripts.
+
+Real card (2026-11-09, browser transport against a copy of the card without
+title contents): discovery found the active directory and `Slot1`; `Slot1`
+stores its ID0 directly, with no `Nintendo 3DS` level. The active bank loaded
+its full layout; `Slot1` loaded read-only with no titles (it holds only HOME
+extdata), WRITE was refused, the slot files kept their hashes, and switching back
+restored the active layout. Native WebView2 was not exercised.
 Existing spatial, multiselect and RULES browser checks and resource selftest pass.
 The previous Python UI-boot HTTP 503 disappears with localhost excluded from the
 proxy (`NO_PROXY=localhost,127.0.0.1`). These results establish synthetic regression

@@ -15,6 +15,14 @@
 body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;color:var(--ink);height:100vh;display:flex;flex-direction:column;overflow:hidden}
 .dot{font-family:'DotGothic16'}
 .topbar{display:flex;align-items:center;gap:20px;height:56px;padding:0 20px;background:var(--card);border-bottom:1px solid var(--line);flex:none}
+#sdinfo{flex:0 1 auto;min-width:96px;line-height:1.3}
+#bankStatus{flex:1 1 auto;min-width:170px;max-height:56px;display:flex;flex-direction:column;justify-content:center;gap:2px;font-size:12px;line-height:1.3;color:var(--mut)}
+#bankStatus .bank-row{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow-x:auto;scrollbar-width:thin}
+#bankStatus .bank-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#bankStatus label{display:flex;align-items:center;gap:4px;min-width:0}
+#bankSelect{flex:1 1 auto;min-width:0}
+#writeBtn,#gearBtn{flex:none}
+@media(max-width:1100px){.topbar{gap:10px}}
 .tab{padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:800;letter-spacing:1px;color:var(--mut);cursor:pointer}
 .tab:hover{opacity:.85}.tab.on{background:var(--red);color:#fff}
 .btn-write{background:var(--red);color:#fff;font-weight:800;font-size:13px;padding:8px 18px;border-radius:8px;box-shadow:0 3px 0 rgba(143,15,40,.35);cursor:pointer}

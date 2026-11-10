@@ -219,10 +219,12 @@ function renderTop() {
   if (S.banks?.detected) {
     const status = document.createElement('div');
     status.id = 'bankStatus';
-    status.innerHTML = `<label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)} - ${b.active ? 'Active' : 'Inactive'}</option>`).join('')}</select></label>
-      <span role="status">${S.banks.readOnly ? 'Read-only. Partial SD layout: NAND, badges and folder HOME positions are unknown.' : 'Viewing the active directory.'} Selection does not switch the console bank.</span>
-      ${S.banks.readOnly ? folderIds().map(id => `<button data-bank-folder="${id}">Unknown folder ${id + 1}</button>`).join('') : ''}
-      <small>${S.banks.warnings.map(esc).join(' ')}</small>`;
+    const note = `${S.banks.readOnly ? 'Read-only. Partial SD layout: NAND, badges and folder HOME positions are unknown.' : 'Viewing the active directory.'} Selection does not switch the console bank.`;
+    const warnings = S.banks.warnings.join(' ');
+    // Two fixed rows keep the 56px header intact; the full note stays in the DOM and the tooltip.
+    status.innerHTML = `<div class="bank-row"><label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)}${b.active ? '' : ' (inactive)'}</option>`).join('')}</select></label>
+      ${S.banks.readOnly ? folderIds().map(id => `<button data-bank-folder="${id}">Unknown folder ${id + 1}</button>`).join('') : ''}</div>
+      <div class="bank-note" title="${esc(note + (warnings ? ' ' + warnings : ''))}"><span role="status">${note}</span> <small>${esc(warnings)}</small></div>`;
     document.getElementById('sdinfo').after(status);
     status.querySelectorAll('[data-bank-folder]').forEach(el => el.onclick = () => {P.openFolder = +el.dataset.bankFolder; P.tab = 'GRID'; render();});
     status.querySelector('select').onchange = async e => {
