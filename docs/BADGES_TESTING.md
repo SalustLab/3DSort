@@ -93,6 +93,22 @@ Case `04-removed`: the badge returned to the tray. Changes: `0xC` 1 to 0, catalo
 #0 `+0x10` 1 to 0, slot 0 back to `EMPTY_RECORD` (bytes 4..13 and 16..23 of the
 record). Exactly what `remove_badge` serializes.
 
+Freed records keep bytes 0..3 (observed 2026-11-09 on the same console): HOME
+restores only bytes 4..23 when a badge leaves a slot, so bytes 0..3 keep the
+removed badge's identifier prefix (catalog `+0x0`). Every GYTB badge has 0 there,
+which is why case 04 looked like a full `EMPTY_RECORD`. After pieces of the
+case-15c mega badge (identifier prefix `0x00C0FFEE`, a synthesized variant) were
+placed and later removed on the console, two free slots read
+`00C0FFEE` + `EMPTY_RECORD[4:]` and the parser failed closed with "Badge layout
+references an unknown badge". Badges from Advanced Badge Editor `.prb` files carry
+a hash there, so ordinary collections reach the same state. The parser now treats
+a record as free when bytes 4..23 match the sentinel (bytes 0..3 free-form) or
+the record is all zero; removal writes bytes 4..23 only, like HOME.
+Regression: `tests/test_badges.py::test_freed_record_keeps_identifier_prefix_like_home`
+and `test_free_prefix_does_not_hide_unknown_or_malformed_records`. Place and
+remove on the real file reproduced it byte for byte; a write back to the console
+from this state has not been run.
+
 Case `05-folder`: the badge placed inside folder "APPS" (Launcher folder id 0,
 3-row folder view) at column 5, row 2. Record: u32 folder = `0` (the Launcher
 folder id, not a position), u32 pos = `0xD` (13) = (5-1)*3 + (2-1): positions are
