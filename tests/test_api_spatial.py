@@ -143,6 +143,42 @@ def test_badges_write_without_nand_and_restore(badge_api):
     assert not api.import_sd()["badges"]["placed"]
 
 
+def test_write_cycle_from_a_collection_with_prefixed_free_records():
+    """The real collection that used to fail closed (free slots keeping a badge's
+    identifier prefix, hardware-observed 2026-11-09) is now writable. The write
+    still goes through the fresh re-extract, backup and journal, untouched free
+    slots stay byte-identical, and a removal keeps the prefix like HOME."""
+    api = build_api(mock=True, mock_badges=True)
+    mng_path = api.save3ds.plain.parent / "badge_plain" / "user" / "BadgeMngFile.dat"
+    raw = bytearray(mng_path.read_bytes())
+    for n in range(360):
+        raw[badges.LAYOUT + n * 24:badges.LAYOUT + (n + 1) * 24] = badges.EMPTY_RECORD
+    prefix = struct.pack("<I", 0x00C0FFEE)
+    raw[badges.INFO:badges.INFO + 4] = prefix                      # catalog #0 has a prefix
+    raw[badges.LAYOUT + 6 * 24:badges.LAYOUT + 6 * 24 + 4] = prefix  # freed earlier by HOME
+    mng_path.write_bytes(raw)
+    state = api.import_sd()
+    assert state["badges"]["writable"], state["badges"]["error"]
+    history = len(state["history"])
+    api.place_badge(0, -1, 20)
+    state = api.write_sd()
+    assert "error" not in state, state
+    assert len(state["history"]) == history + 1  # automatic backup before writing
+    written = mng_path.read_bytes()
+    slot = next(n for n, b in Badges(api._badges.data, written).layout.items() if b["badge"] == 0)
+    assert written[badges.LAYOUT + slot * 24:badges.LAYOUT + slot * 24 + 4] == prefix
+    untouched = [n for n in range(360) if n != slot]
+    assert all(written[badges.LAYOUT + n * 24:badges.LAYOUT + (n + 1) * 24] ==
+               raw[badges.LAYOUT + n * 24:badges.LAYOUT + (n + 1) * 24] for n in untouched)
+    assert struct.unpack_from("<I", written, 12)[0] == 1
+    api.remove_badge(f"b:{slot}")
+    assert "error" not in api.write_sd()
+    removed = mng_path.read_bytes()
+    assert removed[badges.LAYOUT + slot * 24:badges.LAYOUT + (slot + 1) * 24] == prefix + badges.EMPTY_RECORD[4:]
+    assert struct.unpack_from("<I", removed, 12)[0] == 0
+    assert not api.import_sd()["badges"]["placed"]
+
+
 def test_badge_writer_is_open_after_hardware_validation(badge_api):
     """Gate opened 2026-09-07 after the console cases in docs/BADGES_TESTING.md:
     real (non-synthetic) cards with badge extdata are editable and writable."""
