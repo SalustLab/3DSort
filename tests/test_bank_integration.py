@@ -130,3 +130,70 @@ def test_active_bank_alerts_only_when_action_is_needed():
     assert api.get_state()["banks"]["alerts"] == []
     api._bank_anchor = ("replaced",)  # directory identity no longer matches the import
     assert any("re-import" in a.lower() for a in api.get_state()["banks"]["alerts"])
+
+
+# ---- console identity: a card can hold several ID0 folders (multi-console) ----
+# Synthetic movable with zero KeyY -> this known ID0 (same vector as test_sdcard).
+MOVABLE = bytes(0x110) + bytes(16) + bytes(0x20)
+LIVE_ID0 = "ff084737d59d71f775c89e9728d26cd5"
+
+
+def _identity_api():
+    """Bank fixture whose inactive extraction reads whichever ID0 was isolated, plus
+    the console's movable on the card. The fixture slot's own ID0 is unrelated."""
+    api, home = bank_api()
+    (api.sd_root / "3DSort").mkdir(exist_ok=True)
+    (api.sd_root / "3DSort" / "movable.sed").write_bytes(MOVABLE)
+    def extract(eid, root, out):
+        if Path(root) == api.sd_root:
+            return original_extract(eid, root, out)
+        homes = [p for p in Path(root).rglob(eid[-8:]) if p.is_dir()]
+        assert len(homes) == 1, homes  # the isolated tree holds exactly one candidate
+        shutil.copytree(homes[0], out)
+    original_extract = api.save3ds.extract
+    api.save3ds.extract = extract
+    return api, home
+
+
+def _add_slot_id0(home, id0, tid):
+    slot = home.parents[4]  # .../3DSBank/Slot1
+    target = slot / id0 / ("1" * 32) / "extdata" / "00000000" / "0000008f"
+    make_mock_extdata(target)
+    import struct
+    raw = bytearray((target / "user" / "SaveData.dat").read_bytes())
+    struct.pack_into("<Q", raw, 8, tid)
+    (target / "user" / "SaveData.dat").write_bytes(raw)
+
+
+def test_inactive_bank_never_shows_another_consoles_layout():
+    api, _ = _identity_api()  # slot holds only an ID0 the movable does not own
+    active = api.get_state()["items"]
+    result = api.select_bank("slot:1")
+    assert "error" in result
+    assert api.get_state()["items"] == active and not api.get_state()["banks"]["readOnly"]
+
+
+def test_inactive_bank_picks_the_movable_id0_among_several():
+    api, home = _identity_api()
+    _add_slot_id0(home, LIVE_ID0, 0x0004000000c0ffee)
+    state = api.select_bank("slot:1")
+    assert "error" not in state, state
+    assert state["items"][0]["tid"] == "0004000000c0ffee"  # not the unrelated folder's 0004000000abcdef
+
+
+def test_inactive_bank_without_movable_evidence_refuses_several_id0():
+    api, home = bank_api()  # no movable on the card
+    _add_slot_id0(home, LIVE_ID0, 0x0004000000c0ffee)
+    assert "ambiguous" in api.select_bank("slot:1")["error"]
+
+
+def test_returning_to_active_reestablishes_identity_guard():
+    api, _ = bank_api()
+    api.select_bank("slot:1")
+    api._bank_anchor = None  # whatever the inactive session left behind
+    state = api.select_bank("active")
+    assert "error" not in state
+    assert api._bank_anchor is not None and api._bank_anchor == api._active_anchor()
+    (api.sd_root / "Nintendo 3DS").rename(api.sd_root / "Nintendo 3DS.old")  # external bank switch
+    assert "changed" in api.place_badge(0, 0)["error"]
+    assert "changed" in api.write_sd()["error"]
