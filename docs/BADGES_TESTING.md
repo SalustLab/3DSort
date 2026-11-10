@@ -107,7 +107,38 @@ the record is all zero; removal writes bytes 4..23 only, like HOME.
 Regression: `tests/test_badges.py::test_freed_record_keeps_identifier_prefix_like_home`
 and `test_free_prefix_does_not_hide_unknown_or_malformed_records`. Place and
 remove on the real file reproduced it byte for byte; a write back to the console
-from this state has not been run.
+from this state has not been run. The synthetic end-to-end cycle is
+`tests/test_api_spatial.py::test_write_cycle_from_a_collection_with_prefixed_free_records`.
+
+#### Pending console case: write from a collection with prefixed free records
+
+Run on the dev console whose card shows the two `0x00C0FFEE` free slots. Every
+step that changes the card is reversible from the copies taken in step 1.
+
+1. Power off the console. Copy the whole card folders `Nintendo 3DS/<ID0>/<ID1>/extdata/00000000/000014d1`
+   and `.../0000008f` (or the full card) to a dated folder on the PC. This is the
+   recovery source if anything below goes wrong.
+2. Open 3DSort on the card, Import. Expect no badge error, `Badges` and
+   `Decorate folder` available, and the badge tray showing the 36 entries.
+3. Place one badge that has a non-zero prefix (a piece of the case-15c mega
+   badge) on an empty HOME cell, and one ordinary badge on another. WRITE. Expect
+   an automatic backup in SYNC history and no recovery prompt.
+4. Copy `000014d1` again (case `24-write-prefixed`). Compare with step 1: only
+   header `0xC`, the two per-badge `+0x10` counts and the two layout slots that
+   received the badges may differ; slots 6 and 10 must keep `00C0FFEE` +
+   `EMPTY_RECORD[4:]`.
+5. Boot HOME. Both badges must appear at the chosen cells; HOME must not reset
+   or empty the badge layout. Power off, copy again (case `25-post-boot`), and
+   compare with step 4 (only the volatile header words `0x10`/`0x14` may change).
+6. In 3DSort, Import, remove both badges, WRITE. Copy (case `26-removed`): the two
+   slots must read prefix + `EMPTY_RECORD[4:]` for the prefixed piece and a full
+   `EMPTY_RECORD` for the ordinary badge; counters back to their step-1 values.
+7. Boot HOME once more and confirm the tray shows both badges as available again.
+
+Recovery: if HOME shows missing or garbled badges at any point, power off and
+restore with 3DSort's SYNC → backup taken in step 3 (or step 6). If 3DSort cannot
+open the card, copy the step-1 folders back over the card's `000014d1` and
+HOME extdata folder (`0000008f` on this console) with the console off; that restores the exact pre-test state.
 
 Case `05-folder`: the badge placed inside folder "APPS" (Launcher folder id 0,
 3-row folder view) at column 5, row 2. Record: u32 folder = `0` (the Launcher
