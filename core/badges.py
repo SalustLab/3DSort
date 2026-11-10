@@ -70,9 +70,10 @@ class Badges:
             record = self.raw[off:off + 24]
             ident = record[:16]
             pos, folder = struct.unpack_from("<II", management, off + 16)
-            # Free = HOME's sentinel or GYTB's untouched zero record; anything
-            # else that names no badge fails closed.
-            if record in (EMPTY_RECORD, bytes(24)):
+            # Free = HOME's sentinel (bytes 0..3 may keep the freed badge's
+            # identifier prefix, hardware-observed 2026-11-09) or GYTB's untouched
+            # zero record; anything else that names no badge fails closed.
+            if record[4:] == EMPTY_RECORD[4:] or record == bytes(24):
                 continue
             if ident not in identifiers:
                 raise ValueError("Badge layout references an unknown badge.")
@@ -163,7 +164,7 @@ class Badges:
         for slot in self.layout.keys() | layout.keys():
             off = LAYOUT + slot * 24
             if slot not in layout:
-                out[off:off + 24] = EMPTY_RECORD
+                out[off + 4:off + 24] = EMPTY_RECORD[4:]  # HOME keeps bytes 0..3 on removal
                 continue
             b = layout[slot]
             info = INFO + b["badge"] * 0x28

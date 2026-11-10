@@ -50,6 +50,44 @@ def test_home_written_empty_records_and_first_placement(collection):
     assert Badges(collection.data, removed).layout == {}
 
 
+def test_freed_record_keeps_identifier_prefix_like_home(collection):
+    """Hardware evidence (real console, 2026-11-09): HOME frees a placement record by
+    restoring bytes 4..23 to EMPTY_RECORD and leaves bytes 0..3, the badge's
+    identifier prefix (catalog +0x0, a hash in ABE .prb badges), as they were.
+    Such a record is free; the parser used to reject it as an unknown badge."""
+    raw = bytearray(collection.raw)
+    struct.pack_into("<I", raw, INFO + 4 * 0x28, 0x00C0FFEE)  # non-zero identifier prefix
+    for n in range(360):
+        raw[LAYOUT + n * 24:LAYOUT + (n + 1) * 24] = EMPTY_RECORD
+    raw[LAYOUT + 6 * 24:LAYOUT + 7 * 24] = struct.pack("<I", 0x00C0FFEE) + EMPTY_RECORD[4:]
+    raw[LAYOUT + 9 * 24:LAYOUT + 10 * 24] = bytes(24)  # untouched GYTB zero record
+    parsed = Badges(collection.data, raw)
+    assert parsed.layout == {}
+    assert parsed.serialize() == raw
+    # Placing into the slot overwrites the identifier; removing keeps it, like HOME.
+    placed = parsed.serialize({6: dict(badge=4, pos=128, folder=-1, decoration=None)}, validated=True)
+    assert placed[LAYOUT + 6 * 24:LAYOUT + 6 * 24 + 16] == raw[INFO + 4 * 0x28:INFO + 4 * 0x28 + 16]
+    reparsed = Badges(collection.data, placed)
+    assert reparsed.layout == {6: dict(badge=4, pos=128, folder=-1, decoration=None)}
+    assert reparsed.catalog[4]["placed"] == 1 and struct.unpack_from("<I", placed, 12)[0] == 1
+    removed = reparsed.serialize({}, validated=True)
+    assert removed[LAYOUT + 6 * 24:LAYOUT + 7 * 24] == struct.pack("<I", 0x00C0FFEE) + EMPTY_RECORD[4:]
+    assert Badges(collection.data, removed).layout == {}
+    assert struct.unpack_from("<I", removed, 12)[0] == 0
+    assert struct.unpack_from("<H", removed, INFO + 4 * 0x28 + 0x10)[0] == 0
+
+
+def test_free_prefix_does_not_hide_unknown_or_malformed_records(collection):
+    """Only bytes 0..3 may vary on a free record; any other difference still fails closed."""
+    for record in (struct.pack("<I", 0x00C0FFEE) + EMPTY_RECORD[4:20] + b"\0\0\0\0",  # pos set
+                   struct.pack("<I", 0x00C0FFEE) + EMPTY_RECORD[4:12] + b"\0" + EMPTY_RECORD[13:],
+                   struct.pack("<IIIHH", 0, 99, 99, 0, 0) + EMPTY_RECORD[16:]):  # unknown badge
+        raw = bytearray(collection.raw)
+        raw[LAYOUT:LAYOUT + 24] = record
+        with pytest.raises(ValueError):
+            Badges(collection.data, raw)
+
+
 def test_decoration_record_is_folder_home_position(collection):
     """Hardware evidence (cases 06/07, 2026-09-07): a folder decoration record has
     folder = 0xF0FF and pos = the HOME grid position of the FOLDER TILE (12 for a
