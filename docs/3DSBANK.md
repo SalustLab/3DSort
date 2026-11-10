@@ -16,7 +16,11 @@ never the console's active bank. `get_state()` adds `banks` metadata and
 `banks.warnings` keeps discovery diagnostics (configuration, enumeration, the
 suggested-but-unverified active slot) for internal use; the header never shows
 them. `banks.alerts` holds only what the user must act on (a viewed bank that
-changed on the card, an active bank replaced since import) and is always shown.
+changed on the card, an active bank replaced since import) and is always shown:
+a red alert button next to the selector (never truncated, keyboard-reachable,
+accessible name = the full message) shows the complete text in a toast, and the
+status line turns red. A read-only bank only shows the grey info indicator and a
+plain status, so a limitation and a problem look different.
 
 Header messaging: the selector lists `Active bank` and each slot by its
 configured name (`Slot N` otherwise). The active bank shows no status line unless
@@ -25,7 +29,9 @@ shown.` An info indicator (keyboard-focusable, labelled for assistive technology
 explains that switching only changes what 3DSort displays, not the console's
 bank, and that inactive layouts may be incomplete. The selector row stays level
 with the SD text in the same type; the status line hangs below it inside the
-56 px header.
+56 px header. The selector is capped at 16em: a very long configured name is cut
+in the closed select (the dropdown shows it in full) instead of stretching the
+header.
 
 Inactive loading copies only the selected encrypted HOME extdata into a private
 temporary `Nintendo 3DS/<ID0>/<ID1>/extdata/00000000/<HOME-ID>` tree. The existing
@@ -33,7 +39,10 @@ save3ds extraction wrapper reads that copy; decrypted output is separate.
 Source paths and descendants reject symlinks/reparse points. Source hashes are
 checked across extraction; temporary data is removed on success or failure.
 No title library is copied and no setup scripts or NAND payloads are published.
-Keys still must match ID0. Currently there must be exactly one compatible HOME
+Keys still must match ID0. When the card holds the console's `movable.sed`,
+candidates are first filtered to its ID0, so another console's folder in a slot
+is never displayed; without that evidence several ID0 folders are refused as
+ambiguous (tests `test_inactive_bank_*` in `tests/test_bank_integration.py`). Currently there must be exactly one compatible HOME
 candidate: multiple regions or ID1 directories are explicitly rejected. Region
 selection for ambiguous inactive banks remains future work.
 
@@ -97,7 +106,10 @@ bank, an injected alert and an ordinary card without 3DSBank: every header item
 stays inside the 56 px bar without overlap, SD information wraps to at most two
 lines, the selected bank name is never truncated, the selector row is level with
 the SD text, no internal diagnostics are shown and the page never scrolls
-horizontally. It also checks the exact labels and messages, and that the
+horizontally. With an injected alert and an unusually long bank name it checks
+the alert button stays fully visible, carries the full text and opens it from
+the keyboard; the info and alert icons are checked to be drawn centered. It also
+checks the exact labels and messages, and that the
 read-only lock on WRITE is lifted on returning to the active bank without a
 reload (it used to persist until a page reload). Optional `PYTHON` and `CHROMIUM_PATH` work as in the
 other browser scripts.
@@ -107,13 +119,24 @@ title contents): discovery found the active directory and `Slot1`; `Slot1`
 stores its ID0 directly, with no `Nintendo 3DS` level. The active bank loaded
 its full layout; `Slot1` loaded read-only with no titles (it holds only HOME
 extdata), WRITE was refused, the slot files kept their hashes, and switching back
-restored the active layout. Native WebView2 was not exercised.
+restored the active layout.
+
+Native window (2026-11-09, `python app.py --sd <card copy>`, pywebview js_api
+bridge on the WebView2 runtime 157, driven over
+`WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=<port>`): the
+bridge, not the HTTP transport, served the page; labels, messages and the 56 px
+header held with the OS window at inner widths 929, 1264 and 1920 for both banks;
+WRITE was locked on `Slot 1` and unlocked after returning; three round trips
+left exactly one document click listener and one WRITE listener; no JavaScript
+errors; `get_state` bank metadata and counts matched the HTTP transport. The
+physical card was not written (its `gm9/scripts/3DSort_dump.gm9` kept its
+September timestamp).
 Existing spatial, multiselect and RULES browser checks and resource selftest pass.
 The previous Python UI-boot HTTP 503 disappears with localhost excluded from the
 proxy (`NO_PROXY=localhost,127.0.0.1`). These results establish synthetic regression
 coverage only, not physical-console compatibility.
 
-Latest validation (2026-11-09): 360 Python tests passed, 3 skipped; all four
-browser scripts and `python app.py --selftest` passed. `test_rules_ui.cjs` has no
-`CHROMIUM_PATH` hook and was run through a wrapper that points Playwright at Edge. Browser screenshot: `.cache/3dsbank-ui.png`
+Latest validation (2026-11-09): 365 Python tests passed, 3 skipped; all four
+browser scripts (with `CHROMIUM_PATH` pointing at Edge, `NO_PROXY` set) and
+`python app.py --selftest` passed. Browser screenshot: `.cache/3dsbank-ui.png`
 (local artifact, not committed). README makes no new compatibility claim.
