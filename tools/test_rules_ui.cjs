@@ -12,7 +12,7 @@ const path = require('node:path');
     let ready=false;
     for(let i=0;i<100;i++) { try {ready=(await fetch(base)).ok;} catch {} if(ready) break; await new Promise(r=>setTimeout(r,100)); }
     assert(ready);
-    browser=await chromium.launch({headless:true});
+    browser=await chromium.launch({headless:true, ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {})});
     const page=await browser.newPage({viewport:{width:1440,height:1000}}), errors=[];
     page.on('pageerror',e=>errors.push(e.message));
     let acceptDialog = true;
