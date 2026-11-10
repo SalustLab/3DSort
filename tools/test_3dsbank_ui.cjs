@@ -14,9 +14,9 @@ const assert = require('node:assert/strict');
     const page = await browser.newPage();
     const errors=[]; page.on('pageerror',e=>errors.push(e.message));
     // Header must hold the bank selector without spilling over the grid or squeezing SD info.
-    const checkHeader=async(state)=>{for (const [width,height] of [[929,800],[1280,800],[1920,1080]]) {
+    const checkHeader=async(state,longName=false)=>{for (const [width,height] of [[929,800],[1280,800],[1920,1080]]) {
       await page.setViewportSize({width,height});
-      const bad=await page.evaluate(()=>{
+      const bad=await page.evaluate((longName)=>{
         const bar=document.querySelector('.topbar').getBoundingClientRect(), out=[];
         const els=[document.querySelector('.topbar').firstElementChild,...['tabs','sdinfo','bankStatus','writeBtn','gearBtn'].map(id=>document.getElementById(id))].filter(Boolean);
         const rects=els.map(e=>[e.id||'logo',e.getBoundingClientRect()]);
@@ -42,11 +42,15 @@ const assert = require('node:assert/strict');
           clone.style.cssText='position:absolute;flex:none;width:auto;visibility:hidden'; sel.after(clone);
           const natural=clone.getBoundingClientRect().width; clone.remove();
           const select=sel.getBoundingClientRect(), row=bankRow.getBoundingClientRect();
-          if (Math.min(select.right,row.right)-select.left<natural-1) out.push('bank selector truncates its label');
+          // A very long configured name may be cut by the native select; normal names never are.
+          if (!longName&&Math.min(select.right,row.right)-select.left<natural-1) out.push('bank selector truncates its label');
+          // An actionable alert keeps a fully visible indicator whatever the name or width.
+          const ind=document.getElementById('bankAlert');
+          if (ind) {const ir=ind.getBoundingClientRect(); if (ir.width<10||ir.left<row.left-0.5||ir.right>row.right+0.5) out.push('alert indicator not visible');}
           if (/FOLDER_SLOT|ownership|NAND|slot unknown|Configuration/i.test(bank.innerText)) out.push('internal diagnostics shown');
         }
         if (document.documentElement.scrollWidth>innerWidth) out.push('horizontal page scroll');
-        return out;});
+        return out;},longName);
       assert.deepEqual(bad,[],`${state} header at ${width}px`);
     }};
     const INFO="Switching banks here only changes what 3DSort displays. It doesn't switch banks on your console. Inactive bank layouts may be incomplete.";
@@ -71,6 +75,7 @@ const assert = require('node:assert/strict');
     assert(inactive.banks.readOnly); assert.notDeepEqual(inactive.items,active.items);
     assert.equal(await page.locator('[draggable="true"]').count(),0);
     assert.equal((await statusText()).trim(),"Read-only · Some system items aren't shown.");
+    assert.equal(await page.locator('#bankAlert').count(),0);  // a read-only limitation is not an alert
     await checkHeader('inactive'); await page.setViewportSize({width:1280,height:800});
     assert.equal(await page.locator('#writeBtn').getAttribute('aria-disabled'),'true');
     await page.locator('#writeBtn').click();
@@ -90,10 +95,18 @@ const assert = require('node:assert/strict');
     require('node:fs').mkdirSync('.cache',{recursive:true});
     await page.screenshot({path:'.cache/3dsbank-ui.png'});
     // Actionable alerts stay visible in the header without growing it.
-    await page.route('**/api/**',async route=>{const r=await route.fetch(); const j=await r.json(); if (j&&j.banks) j.banks.alerts=['This bank changed on the SD card. Re-import to refresh.']; await route.fulfill({response:r,json:j});});
-    await page.reload(); await page.locator('#bankStatus [role=alert]').waitFor();
-    assert.match(await page.locator('#bankStatus [role=alert]').innerText(),/Re-import to refresh/);
-    await checkHeader('alert'); await page.unroute('**/api/**');
+    const ALERT='Active bank changed or disconnected. Re-import before editing.';
+    const LONG='Archive of every cartridge dump from the 2019 collection before the big reorganisation';
+    await page.route('**/api/**',async route=>{const r=await route.fetch(); const j=await r.json(); if (j&&j.banks) {j.banks.alerts=[ALERT]; j.banks.banks[1].name=LONG;} await route.fulfill({response:r,json:j});});
+    await page.reload(); await page.locator('#bankAlert').waitFor();
+    assert.match(await page.locator('#bankStatus [role=alert]').innerText(),/Re-import before editing/);
+    assert.equal(await page.locator('#bankAlert').getAttribute('aria-label'),'Action needed: '+ALERT);
+    assert.equal(await page.locator('#bankAlert').getAttribute('title'),ALERT);
+    await checkHeader('alert with a long bank name',true);
+    await page.setViewportSize({width:929,height:800});
+    await page.locator('#bankAlert').focus(); await page.keyboard.press('Enter');  // keyboard reaches the full text
+    assert.equal(await page.locator('#toast').innerText(),ALERT);
+    await page.unroute('**/api/**');
     await page.goto('http://127.0.0.1:8396'); await page.locator('#grid').waitFor();
     assert.equal(await page.locator('#bankSelect').count(),0);
     await checkHeader('ordinary card');

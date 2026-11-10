@@ -22,9 +22,10 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 #bankStatus .bank-row{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow-x:auto;scrollbar-width:thin;font-family:'DotGothic16'}
 #bankStatus .bank-note{position:absolute;left:0;right:0;top:calc(50% + 11px);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #bankStatus label{display:flex;align-items:center;gap:4px;min-width:0}
-#bankSelect{flex:1 1 auto;min-width:0;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1px 4px}
+#bankSelect{flex:0 1 auto;min-width:0;max-width:16em;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1px 4px}
 #bankStatus .bank-info{flex:none;cursor:help;font-size:14px}
 #bankStatus .bank-alert{color:var(--red);font-weight:800}
+#bankStatus .bank-alert-btn{flex:none;font:inherit;font-size:13px;line-height:1;color:#fff;background:var(--red);border:0;border-radius:6px;padding:3px 6px;cursor:pointer}
 #writeBtn,#gearBtn{flex:none}
 @media(max-width:1100px){.topbar{gap:10px}}
 .tab{padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:800;letter-spacing:1px;color:var(--mut);cursor:pointer}

@@ -225,10 +225,13 @@ function renderTop() {
     // Two fixed rows keep the 56px header intact. Discovery diagnostics (S.banks.warnings)
     // stay in state only; the header shows what the user can act on.
     status.innerHTML = `<div class="bank-row"><label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>
+      ${alerts ? `<button id="bankAlert" class="bank-alert-btn" aria-label="${esc('Action needed: ' + alerts)}" title="${esc(alerts)}">⚠</button>` : ''}
       <span id="bankInfo" class="bank-info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">ⓘ</span>
       ${S.banks.readOnly ? folderIds().map(id => `<button data-bank-folder="${id}">Unknown folder ${id + 1}</button>`).join('') : ''}</div>
       <div class="bank-note" title="${esc([note, alerts].filter(Boolean).join(' '))}"><span role="status">${note}</span>${alerts ? ` <span role="alert" class="bank-alert">${esc(alerts)}</span>` : ''}</div>`;
     document.getElementById('sdinfo').after(status);
+    // The status line may be cut by ellipsis; the indicator always gives the full alert.
+    if (alerts) status.querySelector('#bankAlert').onclick = () => toast(alerts);
     status.querySelectorAll('[data-bank-folder]').forEach(el => el.onclick = () => {P.openFolder = +el.dataset.bankFolder; P.tab = 'GRID'; render();});
     status.querySelector('select').onchange = async e => {
       e.target.disabled = true;
