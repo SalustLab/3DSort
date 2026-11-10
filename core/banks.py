@@ -83,7 +83,7 @@ def discover(root: Path) -> dict:
         number = None  # INI updates and unchecked renames cannot establish ownership.
         result["banks"].insert(0, {"id": "active", "slot": number,
             "name": (values.get(f"SLOT_NAME_{number}") or f"Slot {number}") + " (active)"
-                    if number is not None else "Active bank (slot unknown)",
+                    if number is not None else "Active bank",
             "root": str(active), "active": True, "editable": False,
             "restriction": "Discovery alone does not validate bank identity for writing."})
     return result

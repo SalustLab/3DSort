@@ -125,6 +125,10 @@ class Api(LayoutApi, WriteApi):
             entry["restriction"] = None if entry["active"] else "Inactive bank: read-only. Shared NAND layout is unavailable."
         info["selected"] = self._selected_bank
         info["readOnly"] = self._selected_bank != "active"
+        # "warnings" keeps discovery diagnostics; "alerts" is what the user must act on.
+        info["alerts"] = []
+        if not info["readOnly"] and info["detected"] and self._bank_mutation_error():
+            info["alerts"].append(self._bank_mutation_error())
         if info["readOnly"] and hasattr(self, "_inactive_source"):
             from core.write_api import tree_hashes
             source, baseline = self._inactive_source
@@ -140,7 +144,7 @@ class Api(LayoutApi, WriteApi):
             except OSError:
                 unchanged = False
             if not unchanged:
-                info["warnings"].append("Source bank changed or disconnected. Display is a previously loaded snapshot; re-import to refresh.")
+                info["alerts"].append("This bank changed on the SD card. Re-import to refresh.")
         return info
 
     def _active_anchor(self):

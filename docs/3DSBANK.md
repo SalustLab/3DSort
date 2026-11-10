@@ -13,6 +13,20 @@ never the console's active bank. `get_state()` adds `banks` metadata and
 `select_bank(bank_id, discard_staged=False)` accepts logical IDs (`active`,
 `slot:N`), not filesystem paths. Inactive region previews are refused.
 
+`banks.warnings` keeps discovery diagnostics (configuration, enumeration, the
+suggested-but-unverified active slot) for internal use; the header never shows
+them. `banks.alerts` holds only what the user must act on (a viewed bank that
+changed on the card, an active bank replaced since import) and is always shown.
+
+Header messaging: the selector lists `Active bank` and each slot by its
+configured name (`Slot N` otherwise). The active bank shows no status line unless
+an alert exists; an inactive bank shows `Read-only · Some system items aren't
+shown.` An info indicator (keyboard-focusable, labelled for assistive technology)
+explains that switching only changes what 3DSort displays, not the console's
+bank, and that inactive layouts may be incomplete. The selector row stays level
+with the SD text in the same type; the status line hangs below it inside the
+56 px header.
+
 Inactive loading copies only the selected encrypted HOME extdata into a private
 temporary `Nintendo 3DS/<ID0>/<ID1>/extdata/00000000/<HOME-ID>` tree. The existing
 save3ds extraction wrapper reads that copy; decrypted output is separate.
@@ -78,10 +92,14 @@ failed-load preservation, recovery, ordinary cards, incompatible saves, ambiguou
 regions/ID1 directories, source changes and source-byte preservation.
 `tools/test_3dsbank_ui.cjs` exercises the real API and rendered selector, switching,
 confirmation cancellation/acceptance, read-only feedback and SYNC status. It also
-checks the header at 929, 1280 and 1920 px for the active and inactive banks:
-every header item stays inside the 56 px bar without overlap, SD information
-wraps to at most two lines, the selector keeps a readable width and the page
-never scrolls horizontally. Optional `PYTHON` and `CHROMIUM_PATH` work as in the
+checks the header at 929, 1280 and 1920 px for the active bank, an inactive
+bank, an injected alert and an ordinary card without 3DSBank: every header item
+stays inside the 56 px bar without overlap, SD information wraps to at most two
+lines, the selected bank name is never truncated, the selector row is level with
+the SD text, no internal diagnostics are shown and the page never scrolls
+horizontally. It also checks the exact labels and messages, and that the
+read-only lock on WRITE is lifted on returning to the active bank without a
+reload (it used to persist until a page reload). Optional `PYTHON` and `CHROMIUM_PATH` work as in the
 other browser scripts.
 
 Real card (2026-11-09, browser transport against a copy of the card without
@@ -95,6 +113,7 @@ The previous Python UI-boot HTTP 503 disappears with localhost excluded from the
 proxy (`NO_PROXY=localhost,127.0.0.1`). These results establish synthetic regression
 coverage only, not physical-console compatibility.
 
-Latest validation: 351 Python tests passed, 9 skipped; all four browser scripts
-and `python app.py --selftest` passed. Browser screenshot: `.cache/3dsbank-ui.png`
+Latest validation (2026-11-09): 360 Python tests passed, 3 skipped; all four
+browser scripts and `python app.py --selftest` passed. `test_rules_ui.cjs` has no
+`CHROMIUM_PATH` hook and was run through a wrapper that points Playwright at Edge. Browser screenshot: `.cache/3dsbank-ui.png`
 (local artifact, not committed). README makes no new compatibility claim.

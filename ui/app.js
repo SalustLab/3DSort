@@ -219,12 +219,15 @@ function renderTop() {
   if (S.banks?.detected) {
     const status = document.createElement('div');
     status.id = 'bankStatus';
-    const note = `${S.banks.readOnly ? 'Read-only. Partial SD layout: NAND, badges and folder HOME positions are unknown.' : 'Viewing the active directory.'} Selection does not switch the console bank.`;
-    const warnings = S.banks.warnings.join(' ');
-    // Two fixed rows keep the 56px header intact; the full note stays in the DOM and the tooltip.
-    status.innerHTML = `<div class="bank-row"><label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)}${b.active ? '' : ' (inactive)'}</option>`).join('')}</select></label>
+    const info = "Switching banks here only changes what 3DSort displays. It doesn't switch banks on your console. Inactive bank layouts may be incomplete.";
+    const note = S.banks.readOnly ? "Read-only · Some system items aren't shown." : '';
+    const alerts = (S.banks.alerts || []).join(' ');
+    // Two fixed rows keep the 56px header intact. Discovery diagnostics (S.banks.warnings)
+    // stay in state only; the header shows what the user can act on.
+    status.innerHTML = `<div class="bank-row"><label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>
+      <span id="bankInfo" class="bank-info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">ⓘ</span>
       ${S.banks.readOnly ? folderIds().map(id => `<button data-bank-folder="${id}">Unknown folder ${id + 1}</button>`).join('') : ''}</div>
-      <div class="bank-note" title="${esc(note + (warnings ? ' ' + warnings : ''))}"><span role="status">${note}</span> <small>${esc(warnings)}</small></div>`;
+      <div class="bank-note" title="${esc([note, alerts].filter(Boolean).join(' '))}"><span role="status">${note}</span>${alerts ? ` <span role="alert" class="bank-alert">${esc(alerts)}</span>` : ''}</div>`;
     document.getElementById('sdinfo').after(status);
     status.querySelectorAll('[data-bank-folder]').forEach(el => el.onclick = () => {P.openFolder = +el.dataset.bankFolder; P.tab = 'GRID'; render();});
     status.querySelector('select').onchange = async e => {
@@ -747,14 +750,23 @@ function postWriteWarning() {
 }
 
 // ---- events -------------------------------------------------------------------
+const BANK_LOCKED = '#writeBtn,#undoBtn,#redoBtn,#newFolderBtn,#sortChip,#backupBtn,[data-restore]';
+// One listener, checked at click time: #writeBtn outlives renders, so per-render locks went stale.
+document.addEventListener('click', e => {
+  if (S?.banks?.readOnly && e.target.closest?.(BANK_LOCKED)) { e.preventDefault(); e.stopImmediatePropagation(); toast('Inactive bank is read-only'); }
+}, {capture:true});
 function bind() {
-  if (S.banks?.readOnly) {
-    document.querySelectorAll('#writeBtn,#undoBtn,#redoBtn,#newFolderBtn,#sortChip,#backupBtn,[data-restore]').forEach(el => {
+  document.querySelectorAll(BANK_LOCKED).forEach(el => {
+    if (S.banks?.readOnly) {
       el.setAttribute('aria-disabled', 'true');
       el.style.opacity = '.45';
-      el.addEventListener('click', e => { e.preventDefault(); e.stopImmediatePropagation(); toast('Inactive bank is read-only'); }, {capture:true});
-    });
-  }
+      el.dataset.bankLocked = '1';
+    } else if (el.dataset.bankLocked) {
+      el.removeAttribute('aria-disabled');
+      el.style.opacity = '';
+      delete el.dataset.bankLocked;
+    }
+  });
   const $ = id => document.getElementById(id);
   document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty()) { if (!window.confirm("Leave unsaved preset changes?")) return; ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
   $("gearBtn").onclick = () => { P.tab = "SETTINGS"; render(); };

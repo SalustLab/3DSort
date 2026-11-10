@@ -16,11 +16,15 @@ body{margin:0;background:var(--bg);font-family:'Nunito',system-ui,sans-serif;col
 .dot{font-family:'DotGothic16'}
 .topbar{display:flex;align-items:center;gap:20px;height:56px;padding:0 20px;background:var(--card);border-bottom:1px solid var(--line);flex:none}
 #sdinfo{flex:0 1 auto;min-width:96px;line-height:1.3}
-#bankStatus{flex:1 1 auto;min-width:170px;max-height:56px;display:flex;flex-direction:column;justify-content:center;gap:2px;font-size:12px;line-height:1.3;color:var(--mut)}
-#bankStatus .bank-row{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow-x:auto;scrollbar-width:thin}
-#bankStatus .bank-note{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* The selector row stays on the header's center line (level with the SD text); the
+   optional note hangs below it, so the row never moves when a message appears. */
+#bankStatus{flex:1 1 auto;min-width:170px;align-self:stretch;position:relative;display:flex;flex-direction:column;justify-content:center;font-size:12px;line-height:1.3;color:var(--mut)}
+#bankStatus .bank-row{display:flex;align-items:center;gap:6px;white-space:nowrap;overflow-x:auto;scrollbar-width:thin;font-family:'DotGothic16'}
+#bankStatus .bank-note{position:absolute;left:0;right:0;top:calc(50% + 11px);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 #bankStatus label{display:flex;align-items:center;gap:4px;min-width:0}
-#bankSelect{flex:1 1 auto;min-width:0}
+#bankSelect{flex:1 1 auto;min-width:0;font:inherit;color:var(--ink);background:var(--card);border:1px solid var(--line);border-radius:6px;padding:1px 4px}
+#bankStatus .bank-info{flex:none;cursor:help;font-size:14px}
+#bankStatus .bank-alert{color:var(--red);font-weight:800}
 #writeBtn,#gearBtn{flex:none}
 @media(max-width:1100px){.topbar{gap:10px}}
 .tab{padding:7px 16px;border-radius:8px;font-size:12.5px;font-weight:800;letter-spacing:1px;color:var(--mut);cursor:pointer}

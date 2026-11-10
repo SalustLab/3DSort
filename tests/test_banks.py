@@ -17,7 +17,7 @@ def test_slots_and_names_are_read_only(tmp_path):
     result = discover(tmp_path)
     assert result["detected"]
     assert result["banks"][0]["slot"] is None
-    assert "unknown" in result["banks"][0]["name"]
+    assert result["banks"][0]["name"] == "Active bank"  # uncertainty lives in slot=None, not the label
     assert result["banks"][1]["slot"] == 1
     assert not any(b["editable"] for b in result["banks"])
     assert ini.read_bytes() == raw

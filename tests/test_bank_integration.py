@@ -119,4 +119,14 @@ def test_external_inactive_change_is_reported():
     api, home = bank_api()
     api.select_bank("slot:1")
     shutil.rmtree(home)
-    assert any("snapshot" in w for w in api.get_state()["banks"]["warnings"])
+    banks = api.get_state()["banks"]
+    # Actionable: shown in the header. Discovery diagnostics stay in "warnings".
+    assert any("re-import" in a.lower() for a in banks["alerts"])
+    assert not any("snapshot" in w for w in banks["warnings"])
+
+
+def test_active_bank_alerts_only_when_action_is_needed():
+    api, _ = bank_api()
+    assert api.get_state()["banks"]["alerts"] == []
+    api._bank_anchor = ("replaced",)  # directory identity no longer matches the import
+    assert any("re-import" in a.lower() for a in api.get_state()["banks"]["alerts"])
