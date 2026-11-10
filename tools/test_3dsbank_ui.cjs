@@ -45,6 +45,14 @@ const assert = require('node:assert/strict');
           // A very long configured name may be cut by the native select; normal names never are.
           if (!longName&&Math.min(select.right,row.right)-select.left<natural-1) out.push('bank selector truncates its label');
           // An actionable alert keeps a fully visible indicator whatever the name or width.
+          // Info and alert icons are drawn centered in their boxes (font glyphs were not).
+          for (const id of ['bankInfo','bankAlert']) {
+            const box=document.getElementById(id); if (!box) continue;
+            const icon=box.querySelector('svg'), b=box.getBoundingClientRect();
+            if (!icon) {out.push(id+' icon is not a centered drawing'); continue;}
+            const i=icon.getBoundingClientRect();
+            if (Math.abs((i.left+i.right)-(b.left+b.right))>1||Math.abs((i.top+i.bottom)-(b.top+b.bottom))>1) out.push(id+' icon off-center');
+          }
           const ind=document.getElementById('bankAlert');
           if (ind) {const ir=ind.getBoundingClientRect(); if (ir.width<10||ir.left<row.left-0.5||ir.right>row.right+0.5) out.push('alert indicator not visible');}
           if (/FOLDER_SLOT|ownership|NAND|slot unknown|Configuration/i.test(bank.innerText)) out.push('internal diagnostics shown');

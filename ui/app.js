@@ -225,8 +225,8 @@ function renderTop() {
     // Two fixed rows keep the 56px header intact. Discovery diagnostics (S.banks.warnings)
     // stay in state only; the header shows what the user can act on.
     status.innerHTML = `<div class="bank-row"><label>Bank: <select id="bankSelect" aria-label="Viewed bank">${S.banks.banks.map(b => `<option value="${esc(b.id)}" ${b.id === S.banks.selected ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}</select></label>
-      ${alerts ? `<button id="bankAlert" class="bank-alert-btn" aria-label="${esc('Action needed: ' + alerts)}" title="${esc(alerts)}">⚠</button>` : ''}
-      <span id="bankInfo" class="bank-info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}">ⓘ</span>
+      ${alerts ? `<button id="bankAlert" class="bank-alert-btn" aria-label="${esc('Action needed: ' + alerts)}" title="${esc(alerts)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 3 2 21h20z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg></button>` : ''}
+      <span id="bankInfo" class="bank-info" tabindex="0" role="img" aria-label="${esc(info)}" title="${esc(info)}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9.5"/><path d="M12 11v6"/><path d="M12 7.5h.01"/></svg></span>
       ${S.banks.readOnly ? folderIds().map(id => `<button data-bank-folder="${id}">Unknown folder ${id + 1}</button>`).join('') : ''}</div>
       <div class="bank-note" title="${esc([note, alerts].filter(Boolean).join(' '))}"><span role="status">${note}</span>${alerts ? ` <span role="alert" class="bank-alert">${esc(alerts)}</span>` : ''}</div>`;
     document.getElementById('sdinfo').after(status);
