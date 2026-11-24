@@ -8,7 +8,7 @@
 
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-4a3f35)](#running-from-source)
 [![Python](https://img.shields.io/badge/python-3.10%2B-3776ab?logo=python&logoColor=white)](#running-from-source)
-[![Tests](https://img.shields.io/badge/tests-269%20passing-7ac70c)](#tests)
+[![Tests](https://img.shields.io/badge/tests-320%20passing-7ac70c)](#tests)
 [![Hardware validated](https://img.shields.io/badge/hardware-validated%20on%20a%20real%203DS-d31e40)](#status)
 [![License](https://img.shields.io/github/license/SalustLab/3DSort?color=blue)](LICENSE)
 [![Latest release](https://img.shields.io/github/v/release/SalustLab/3DSort?label=release&color=d31e40)](https://github.com/SalustLab/3DSort/releases/latest)

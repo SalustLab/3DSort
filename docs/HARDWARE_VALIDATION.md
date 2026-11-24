@@ -8,6 +8,8 @@ published and cannot independently substantiate new claims here.
   folders, baptism counters, restore, theme graft, multi-id0 and gate-2 abort.
 - 2026-09-30 reporter: 0x2CB0 v4 read/write and DSiWare/forwarder sorting.
 - 2026-10-22 owner: multiselect and regional cache fix before v1.3.0.
+- 2026-11-23 owner: custom and folder sort presets, badge place/remove from freed
+  records that keep the identifier prefix, GM9 inject verified, before v1.4.0.
 - macOS arm64 contributor: v1.1.0 app read/write/inject on New 2DS XL.
   Exact OS version in the old note is unverified; do not use it as compatibility proof.
 - Region-changed JPN-to-USA console: see [regional evidence](REGION_CHANGE.md).
