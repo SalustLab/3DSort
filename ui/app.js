@@ -127,11 +127,30 @@ let presetLibrary = { presets: [], warning: null };
 let ruleDraft = null, ruleSaved = null, ruleError = "";
 const criterionLabels = { internal_title: "Internal title", official_title: "Official title", release_date: "Release date" };
 function rulesDirty() { return JSON.stringify(ruleDraft) !== JSON.stringify(ruleSaved); }
+// Same markup and behavior as the folder/compact confirmations (Cancel, primary action, click outside closes).
+function confirmModal(title, text, okLabel, onOk) {
+  const m = document.getElementById("modal"), close = () => (m.innerHTML = "");
+  m.innerHTML = `<div class="modal-bg" id="modalBg"><div class="modal">
+    <h2>${esc(title)}</h2>
+    <div class="hint">${esc(text)}</div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <div class="btn" id="confirmModalCancel" style="padding:8px 16px;font-size:12.5px;border-radius:9px">Cancel</div>
+      <div class="btn primary" id="confirmModalOk" style="padding:9px 18px;font-size:12.5px;border-radius:9px">${esc(okLabel)}</div>
+    </div></div></div>`;
+  document.getElementById("confirmModalCancel").onclick = close;
+  document.getElementById("modalBg").onclick = e => { if (e.target.id === "modalBg") close(); };
+  document.getElementById("confirmModalOk").onclick = () => { close(); onOk(); };
+}
+function confirmDiscardRule(then) {
+  if (!rulesDirty()) return then();
+  confirmModal("Discard unsaved changes?", "The changes to this preset have not been saved and will be lost.", "Discard", then);
+}
 function selectRule(preset) {
-  if (rulesDirty() && !window.confirm("Discard unsaved preset changes?")) return;
-  ruleDraft = JSON.parse(JSON.stringify(preset));
-  ruleSaved = JSON.parse(JSON.stringify(preset));
-  ruleError = ""; render();
+  confirmDiscardRule(() => {
+    ruleDraft = JSON.parse(JSON.stringify(preset));
+    ruleSaved = JSON.parse(JSON.stringify(preset));
+    ruleError = ""; render();
+  });
 }
 const BADGES = [
   { m: "★", c: "#ffb400" }, { m: "♥", c: "#ff6fa5" }, { m: "M", c: "#e60012" }, { m: "?", c: "#ffb400" },
@@ -481,11 +500,11 @@ function bindRules() {
     ruleDraft = JSON.parse(JSON.stringify(result.presets.find(p => p.id === ruleDraft.id) || result.presets[result.presets.length - 1]));
     ruleSaved = JSON.parse(JSON.stringify(ruleDraft)); ruleError = ''; render(); toast('Preset saved');
   };
-  if (byId('deleteSortPreset')) byId('deleteSortPreset').onclick = async () => {
-    if (!window.confirm('Delete this sorting preset?')) return;
-    const result = await call('delete_sort_preset', [ruleDraft.id]);
-    if (result) { presetLibrary = result; ruleDraft = ruleSaved = null; render(); }
-  };
+  if (byId('deleteSortPreset')) byId('deleteSortPreset').onclick = () =>
+    confirmModal(`Delete preset ${ruleSaved.name}?`, 'The preset is removed from this computer. Your layout does not change.', 'DELETE', async () => {
+      const result = await call('delete_sort_preset', [ruleDraft.id]);
+      if (result) { presetLibrary = result; ruleDraft = ruleSaved = null; render(); }
+    });
 }
 
 // Static v2 preview — only the LIVE PREVIEW gradient follows the chosen theme.
@@ -723,7 +742,10 @@ function postWriteWarning() {
 // ---- events -------------------------------------------------------------------
 function bind() {
   const $ = id => document.getElementById(id);
-  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => { if (P.tab === "RULES" && rulesDirty()) { if (!window.confirm("Leave unsaved preset changes?")) return; ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); });
+  document.querySelectorAll("[data-tab]").forEach(el => el.onclick = () => {
+    const go = () => { if (P.tab === "RULES") { ruleDraft = JSON.parse(JSON.stringify(ruleSaved)); ruleError = ""; } P.tab = el.dataset.tab; P.openFolder = null; savePrefs(); render(); };
+    P.tab === "RULES" ? confirmDiscardRule(go) : go();
+  });
   $("gearBtn").onclick = () => { P.tab = "SETTINGS"; render(); };
   const openWrite = () => {
     if (!S.staged.length) return toast("Nothing staged to write");
