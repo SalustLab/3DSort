@@ -1359,6 +1359,7 @@ def selftest() -> int:
         "ui/index.html": (UI / "index.html").is_file(),
         "ui/layout.js": (UI / "layout.js").is_file(),
         "ui/layout.css": (UI / "layout.css").is_file(),
+        "ui/search.js": (UI / "search.js").is_file(),
         f"tools/save3ds/{SAVE3DS_NAME}": (ROOT / "tools" / "save3ds" / SAVE3DS_NAME).is_file(),
         "core/titledates.json.gz": len(titledates._load()) > 0,
         "core/titlenames.json.gz": bool(titlenames.official_title(0x0004000000030800)),

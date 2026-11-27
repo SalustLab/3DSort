@@ -80,3 +80,19 @@
 #grid .item.sel { outline: 3px solid var(--red); outline-offset: -3px; background: #fde8ec; border-radius: 12px; }
 #grid .item.sel::after { content: '✓'; position: absolute; top: 3px; right: 5px; color: var(--red); font-weight: 900; }
 .conflict-cell { border: 2px solid var(--red); background: #fde8ec; font-size: 11px; gap: 3px; padding: 8px; cursor: default; }
+/* Game search: box in the grid header, results drop down beneath it. */
+.game-search { position:relative; }
+.game-search input { font:inherit; font-size:12.5px; font-weight:700; color:var(--ink); width:200px; height:32px; box-sizing:border-box; background:var(--card); border:1px solid var(--line2); border-radius:8px; padding:0 10px; outline:none; }
+.game-search input:focus { border-color:var(--red); }
+.search-results { position:absolute; top:38px; right:0; z-index:45; width:340px; max-height:360px; overflow-y:auto; background:var(--card); border:2px solid var(--line); border-radius:12px; box-shadow:0 10px 30px rgba(74,63,53,.2); padding:6px; }
+.search-result { display:flex; align-items:center; gap:10px; padding:6px 8px; border-radius:8px; cursor:pointer; }
+.search-result.active,.search-result:hover { background:#faecd4; }
+.search-icon { width:28px; height:28px; flex:none; border-radius:6px; image-rendering:pixelated; display:grid; place-items:center; }
+.search-folder { background:var(--card); border:2px solid #3b4cca; color:#3b4cca; font-size:15px; box-sizing:border-box; }
+.search-name { flex:1; min-width:0; font-size:12.5px; font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.search-place { flex:none; font-size:11px; font-weight:700; color:var(--mut); }
+.search-more { padding:8px; font-size:12px; color:var(--mut); text-align:center; }
+.grid.searching .item:not(.search-hit):not(.empty-cell) { opacity:.3; }
+.grid.searching .item.search-hit { background:#fde8ec; }
+.grid .item.search-found { animation:search-found .45s ease-in-out 3; }
+@keyframes search-found { 50% { transform:scale(1.12); box-shadow:0 0 0 3px var(--red); } }

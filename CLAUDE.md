@@ -12,7 +12,7 @@ Run commands from the repository root:
 - `python app.py`: launch the native application with real SD card discovery.
 - `python app.py --serve --mock --mock-badges`: develop in a browser using synthetic console and badge data.
 - `python -m pytest tests -q`: run the Python suite; tests requiring unavailable console data skip automatically.
-- `node tools/test_spatial_ui.cjs` and `node tools/test_multiselect_ui.cjs`: run headless browser checks; require Playwright and Chromium.
+- `node tools/test_spatial_ui.cjs`, `node tools/test_multiselect_ui.cjs` and `node tools/test_search_ui.cjs`: run headless browser checks; require Playwright and Chromium.
 - `pyinstaller 3DSort.spec`: build the Windows executable; validate with `dist\3DSort.exe --selftest`. Use the platform-specific specs and documentation for macOS/Linux.
 
 ## Coding Style & Naming Conventions

@@ -218,6 +218,7 @@ function render() {
   restoreScroll(tops);   // before playFlip: the FLIP deltas are viewport-relative
   bind();
   bindSpatial();
+  bindSearch();
   playFlip(before);
 }
 
@@ -387,6 +388,7 @@ function gridScreen() {
       <div style="font-weight:900;font-size:16px">Home grid</div>
       <div style="font-size:12px;color:var(--mut)">drag to swap · drop onto an empty position to move · drop onto a folder to move inside</div>
       <div style="flex:1"></div>
+      ${searchBox()}
       ${S.launcherWritable ? `<div class="chipbtn" id="newFolderBtn" style="border-width:1.5px;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:800">+ Folder</div>` : ""}
       <div class="seg" id="sizeSeg">${sizeBtns}</div>
       ${sortControl()}
@@ -408,6 +410,7 @@ function folderScreen(px) {
       <span class="link" id="closeFolder">◂ Home grid</span><span>▸</span>
       <span style="color:var(--ink)">🗀 ${esc(fname(id))}</span>
       <div style="flex:1"></div>
+      ${searchBox()}
       <div class="link" id="closeFolderX" style="width:30px;height:30px;border-radius:8px;border:1px solid var(--line2);display:grid;place-items:center;font-size:13px">✕</div>
     </div>
     <div style="display:flex;align-items:center;gap:16px;margin:16px 0 4px">

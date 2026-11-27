@@ -42,6 +42,8 @@ for Linux. No installer, no Python.
   slot. Drop one tile on another to swap them, or on an empty cell to move it
 - Select many titles at once (Shift-click a range, Ctrl-click or Cmd-click to
   add) and move them together onto a title, an empty cell or a folder
+- Search for a game by name (Ctrl+F) across the home grid and every folder,
+  then jump straight to it
 - Sort globally or inside an individual folder: A to Z, Z to A or by release date, DSiWare and NDS forwarders included
 - Build reusable sorting presets in **RULES**: prioritize internal title, offline
   commercial title, and release date with independent directions. Apply globally
@@ -117,8 +119,9 @@ python -m pytest tests -q     # 269 tests, no console needed
 ```
 
 Tests that need real console keys skip themselves, and a guard test fails if
-anything ever writes to a real SD card. `node tools/test_spatial_ui.cjs` and
-`node tools/test_multiselect_ui.cjs` drive the UI in a headless browser.
+anything ever writes to a real SD card. `node tools/test_spatial_ui.cjs`,
+`node tools/test_multiselect_ui.cjs` and `node tools/test_search_ui.cjs` drive
+the UI in a headless browser.
 
 ## Building
 
