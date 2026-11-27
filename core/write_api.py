@@ -165,7 +165,7 @@ class WriteApi:
                 if not p.is_file():
                     continue
                 rel = p.relative_to(tx / "payload").as_posix()
-                target = self.workdir / rel if rel == "pending_inject.json" else Path(self.sd_root) / rel
+                target = self._pending_path() if rel == "pending_inject.json" else Path(self.sd_root) / rel
                 old = tx / "old_payload" / rel
                 if target.exists():
                     old.parent.mkdir(parents=True, exist_ok=True)
@@ -216,7 +216,7 @@ class WriteApi:
             # Marker last: a pending injection is advertised only after its files exist.
             for rel in sorted(j["files"], key=lambda r: r == "pending_inject.json"):
                 hashes = j["files"][rel]
-                target = self.workdir / rel if rel == "pending_inject.json" else Path(self.sd_root) / rel
+                target = self._pending_path() if rel == "pending_inject.json" else Path(self.sd_root) / rel
                 if hashes[side] is None:
                     target.unlink(missing_ok=True)
                 else:

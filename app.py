@@ -131,6 +131,7 @@ class Api(LayoutApi, WriteApi):
         sd_id0 = self._sd_movable_id0()
         self._candidates = find_consoles(self.sd_root, prefer_id0=sd_id0)
         self.console = self._resolve_console()
+        self._adopt_legacy_pending()
         if self._recovery_info():
             journal = json.loads((self._transaction_dir() / "journal.json").read_text("utf-8"))
             card_error = self._connected_card_error(journal)
@@ -762,6 +763,7 @@ class Api(LayoutApi, WriteApi):
             gm9_inject_script(self.console.id0, save_id),
             encoding="ascii", newline="\n")
         marker = destination / "pending_inject.json" if destination != Path(self.sd_root) else self._pending_path()
+        marker.parent.mkdir(parents=True, exist_ok=True)
         marker.write_text(json.dumps({
             "sha": digest.hex(), "when": time.strftime("%Y-%m-%d %H:%M:%S"),
             "changes": n_changes,
@@ -769,14 +771,51 @@ class Api(LayoutApi, WriteApi):
             "badgeDependent": bool(st.get("badge_layout") or self._badge_baseline)}), encoding="utf-8")
 
     # ---- pending inject (NAND) -------------------------------------------
-    def _pending_path(self) -> Path:
+    # One marker per card, in the workdir. id0 names the console and id1 the SD
+    # card, so two cards used in one console never share a marker either. A
+    # single shared marker made a write on one card show up as "NAND inject
+    # pending" on every other card, where Cancel or Mark as done would silently
+    # drop it for the card it belonged to. Not keyed by region on purpose: the
+    # set_region guard must still see the pending inject after a region switch.
+    def _legacy_pending_path(self) -> Path:
         return self.workdir / "pending_inject.json"
+
+    def _pending_path(self) -> Path | None:
+        # The card is known before its region is: on a region-changed card with
+        # no stored choice, console is None until set_region, and that is
+        # exactly where the guard must still see the pending inject.
+        card = self.console or (self._candidates[0] if self._candidates else None)
+        if card is None:
+            return None
+        return self.workdir / "pending_inject" / f"{card.id0}_{card.id1}.json"
 
     def _pending_inject_info(self) -> dict | None:
         p = self._pending_path()
-        if not p.exists():
+        if p is None or not p.exists():
             return None
         return json.loads(p.read_text(encoding="utf-8"))
+
+    def _clear_pending(self):
+        p = self._pending_path()
+        if p is not None:
+            p.unlink(missing_ok=True)
+
+    def _adopt_legacy_pending(self):
+        """Up to v1.4.0 the marker was one workdir file shared by every card. It
+        belongs to the card whose published payload still matches its sha; any
+        other card leaves it alone, so it waits for its own card."""
+        legacy, target = self._legacy_pending_path(), self._pending_path()
+        if target is None or self.sd_root is None or not legacy.exists():
+            return
+        try:
+            info = json.loads(legacy.read_text(encoding="utf-8"))
+            payload = Path(self.sd_root) / "3DSort" / "homemenu_save_new.bin"
+            mine = payload.is_file() and self._payload_intact(payload, info)
+        except (OSError, ValueError, KeyError):
+            return
+        if mine and not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
+            legacy.replace(target)
 
     PAYLOAD_CHANGED_ERROR = ("Injection payload changed after writing. Keep the card "
                              "files and backups; do not mark the injection as done.")
@@ -803,7 +842,7 @@ class Api(LayoutApi, WriteApi):
             return False
         self._promote_payload(sd3)
         receipt.unlink(missing_ok=True)
-        self._pending_path().unlink(missing_ok=True)
+        self._clear_pending()
         return True
 
     def _promote_payload(self, sd3: Path):
@@ -865,7 +904,7 @@ class Api(LayoutApi, WriteApi):
                 return {"error": self.PAYLOAD_CHANGED_ERROR}
             self._promote_payload(sd3)
             (sd3 / "inject_done.sha").unlink(missing_ok=True)
-        self._pending_path().unlink(missing_ok=True)
+        self._clear_pending()
         return self.import_sd()
 
     def cancel_inject(self):
@@ -886,7 +925,7 @@ class Api(LayoutApi, WriteApi):
                 (sd3 / name).unlink(missing_ok=True)
             self._delete_inject_script()
         # Marker last: _find_container prefers the payload while it exists.
-        self._pending_path().unlink(missing_ok=True)
+        self._clear_pending()
         return self.import_sd()
 
     # ---- settings (SD drive and backups folder) ---------------------------
